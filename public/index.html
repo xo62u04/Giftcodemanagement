@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>電子禮券管理後台</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>🎁 電子禮券管理後台</h1>
+    <nav>
+      <button class="tab-btn active" data-tab="overview">總覽</button>
+      <button class="tab-btn" data-tab="codes">禮券管理</button>
+      <button class="tab-btn" data-tab="upload">上傳 CSV</button>
+      <button class="tab-btn" data-tab="bulk">批次兌換</button>
+      <button class="tab-btn" data-tab="batches">上傳紀錄</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 總覽 -->
+    <section id="tab-overview" class="tab active">
+      <div class="stat-cards">
+        <div class="stat-card"><div class="stat-label">禮券總數</div><div class="stat-value" id="stat-total">–</div></div>
+        <div class="stat-card"><div class="stat-label">未兌換</div><div class="stat-value stat-available" id="stat-available">–</div></div>
+        <div class="stat-card"><div class="stat-label">已兌換</div><div class="stat-value stat-redeemed" id="stat-redeemed">–</div></div>
+        <div class="stat-card"><div class="stat-label">上傳批次</div><div class="stat-value" id="stat-batches">–</div></div>
+      </div>
+      <h2>各活動使用狀況</h2>
+      <table class="data-table">
+        <thead><tr><th>活動名稱</th><th>已兌換張數</th></tr></thead>
+        <tbody id="campaign-stats"><tr><td colspan="2" class="empty">尚無活動</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- 禮券管理 -->
+    <section id="tab-codes" class="tab">
+      <form id="filter-form" class="filter-bar">
+        <input type="search" id="filter-q" placeholder="搜尋禮券碼…">
+        <select id="filter-status">
+          <option value="">全部狀態</option>
+          <option value="available">未兌換</option>
+          <option value="redeemed">已兌換</option>
+        </select>
+        <select id="filter-batch"><option value="">全部批次</option></select>
+        <select id="filter-campaign"><option value="">全部活動</option></select>
+        <button type="submit" class="btn">篩選</button>
+        <button type="button" class="btn btn-secondary" id="btn-export">匯出 CSV</button>
+      </form>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>禮券碼</th><th>面額</th><th>到期日</th><th>狀態</th>
+            <th>使用活動</th><th>經手人</th><th>兌換時間</th><th>備註</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="codes-body"><tr><td colspan="9" class="empty">載入中…</td></tr></tbody>
+      </table>
+      <div class="pagination">
+        <button class="btn btn-secondary" id="btn-prev">上一頁</button>
+        <span id="page-info"></span>
+        <button class="btn btn-secondary" id="btn-next">下一頁</button>
+      </div>
+    </section>
+
+    <!-- 上傳 CSV -->
+    <section id="tab-upload" class="tab">
+      <form id="upload-form" class="card-form">
+        <h2>上傳禮券 CSV</h2>
+        <p class="hint">
+          支援含標頭的 CSV（禮券碼欄位可命名為 code / 禮券碼 / 序號 / 兌換碼 等，
+          可選欄位：面額、到期日）。若無可辨識的標頭，會以第一欄作為禮券碼。
+          與資料庫重複的禮券碼會自動略過。
+        </p>
+        <label>CSV 檔案 <input type="file" id="upload-file" accept=".csv,text/csv" required></label>
+        <label>上傳人（選填） <input type="text" id="upload-by" placeholder="例：王小明"></label>
+        <label>批次備註（選填） <input type="text" id="upload-note" placeholder="例：2026 Q3 採購 500 元券"></label>
+        <button type="submit" class="btn">上傳</button>
+      </form>
+      <div id="upload-result" class="result-box hidden"></div>
+    </section>
+
+    <!-- 批次兌換 -->
+    <section id="tab-bulk" class="tab">
+      <form id="bulk-form" class="card-form">
+        <h2>批次標記兌換</h2>
+        <p class="hint">貼上多個禮券碼（每行一個，或以逗號分隔），一次標記為同一個活動使用。</p>
+        <label>禮券碼清單 <textarea id="bulk-codes" rows="8" required placeholder="ABC-001&#10;ABC-002&#10;ABC-003"></textarea></label>
+        <label>使用活動 <input type="text" id="bulk-campaign" list="campaign-list" required placeholder="例：週年慶抽獎"></label>
+        <label>經手人（選填） <input type="text" id="bulk-by"></label>
+        <label>備註（選填） <input type="text" id="bulk-note"></label>
+        <button type="submit" class="btn">批次兌換</button>
+      </form>
+      <div id="bulk-result" class="result-box hidden"></div>
+    </section>
+
+    <!-- 上傳紀錄 -->
+    <section id="tab-batches" class="tab">
+      <h2>上傳紀錄</h2>
+      <table class="data-table">
+        <thead>
+          <tr><th>#</th><th>檔名</th><th>上傳人</th><th>備註</th><th>檔內筆數</th><th>成功匯入</th><th>重複略過</th><th>上傳時間</th></tr>
+        </thead>
+        <tbody id="batches-body"><tr><td colspan="8" class="empty">載入中…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- 兌換對話框 -->
+  <dialog id="redeem-dialog">
+    <form id="redeem-form" method="dialog" class="card-form">
+      <h2>標記兌換</h2>
+      <p>禮券碼：<strong id="redeem-code-label"></strong></p>
+      <label>使用活動 <input type="text" id="redeem-campaign" list="campaign-list" required placeholder="例：週年慶抽獎"></label>
+      <label>經手人（選填） <input type="text" id="redeem-by"></label>
+      <label>備註（選填） <input type="text" id="redeem-note"></label>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="redeem-cancel">取消</button>
+        <button type="submit" class="btn">確認兌換</button>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="campaign-list"></datalist>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

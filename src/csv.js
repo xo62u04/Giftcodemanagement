@@ -1,0 +1,83 @@
+'use strict';
+
+const { parse } = require('csv-parse/sync');
+
+// 各欄位可接受的標頭名稱（不分大小寫）
+const CODE_HEADERS = [
+  'code', 'codes', 'giftcode', 'gift_code', 'gift code', 'voucher', 'voucher_code',
+  'voucher code', 'coupon', 'coupon_code', 'serial', 'serial_no', 'sn', 'pin',
+  '禮券碼', '禮券序號', '禮券代碼', '兌換碼', '序號', '卡號', '代碼',
+];
+const VALUE_HEADERS = ['face_value', 'facevalue', 'value', 'amount', 'price', '面額', '金額', '票面金額'];
+const EXPIRY_HEADERS = ['expires_at', 'expiry', 'expire', 'expiration', 'expire_date', 'valid_until', '到期日', '有效期限', '效期'];
+
+function normalizeHeader(h) {
+  return String(h || '').replace(/^﻿/, '').trim().toLowerCase();
+}
+
+function findColumn(headers, candidates) {
+  const normalized = headers.map(normalizeHeader);
+  for (const cand of candidates) {
+    const idx = normalized.indexOf(cand);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+/**
+ * 解析禮券 CSV。
+ * 優先以標頭找出禮券碼欄位；找不到符合的標頭時退回「第一欄即禮券碼」，
+ * 並在第一列看起來像標頭（含中文欄名或常見英文欄名）時略過它。
+ * 回傳 { rows: [{code, face_value, expires_at}], errors: [string] }
+ */
+function parseGiftcodeCsv(buffer) {
+  const records = parse(buffer, {
+    bom: true,
+    trim: true,
+    skip_empty_lines: true,
+    relax_column_count: true,
+  });
+  if (records.length === 0) return { rows: [], errors: ['CSV 檔案沒有內容'] };
+
+  const headers = records[0];
+  let codeIdx = findColumn(headers, CODE_HEADERS);
+  let valueIdx = -1;
+  let expiryIdx = -1;
+  let dataStart = 1;
+
+  if (codeIdx !== -1) {
+    valueIdx = findColumn(headers, VALUE_HEADERS);
+    expiryIdx = findColumn(headers, EXPIRY_HEADERS);
+  } else {
+    // 無法辨識標頭：把第一欄當禮券碼
+    codeIdx = 0;
+    const first = normalizeHeader(headers[0]);
+    const looksLikeHeader = /[一-鿿]/.test(first) || /^(code|codes|no|number|id|name)$/.test(first);
+    dataStart = looksLikeHeader ? 1 : 0;
+  }
+
+  const rows = [];
+  const errors = [];
+  const seen = new Set();
+  for (let i = dataStart; i < records.length; i++) {
+    const rec = records[i];
+    const code = String(rec[codeIdx] || '').trim();
+    if (!code) {
+      errors.push(`第 ${i + 1} 列：禮券碼為空，已略過`);
+      continue;
+    }
+    if (seen.has(code)) {
+      errors.push(`第 ${i + 1} 列：禮券碼「${code}」在檔案內重複，已略過`);
+      continue;
+    }
+    seen.add(code);
+    rows.push({
+      code,
+      face_value: valueIdx !== -1 ? String(rec[valueIdx] || '').trim() : '',
+      expires_at: expiryIdx !== -1 ? String(rec[expiryIdx] || '').trim() : '',
+    });
+  }
+  return { rows, errors };
+}
+
+module.exports = { parseGiftcodeCsv };
