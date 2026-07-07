@@ -328,10 +328,11 @@ app.get('/api/export.csv', (req, res) => {
     const s = String(v == null ? '' : v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const header = ['code', 'status', 'campaign', 'redeemed_by', 'redeemed_note', 'redeemed_at', 'face_value', 'expires_at', 'batch_filename', 'created_at'];
+  const header = ['gift_name', 'code', 'status', 'campaign', 'redeemed_by', 'redeemed_note', 'redeemed_at', 'face_value', 'expires_at', 'batch_filename', 'created_at'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
+      r.gift_name || '',
       r.code,
       r.status === 'redeemed' ? '已兌換' : '未兌換',
       r.campaign_name || '',
