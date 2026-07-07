@@ -71,12 +71,13 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
 
   const note = String(req.body.note || '').trim();
   const uploadedBy = String(req.body.uploaded_by || '').trim();
+  const giftName = String(req.body.gift_name || '').trim();
   const duplicates = [];
 
   const result = db.transaction(() => {
     const batch = db.prepare(
-      'INSERT INTO batches (filename, note, uploaded_by) VALUES (?, ?, ?)'
-    ).run(req.file.originalname || 'upload.csv', note, uploadedBy);
+      'INSERT INTO batches (filename, note, uploaded_by, gift_name) VALUES (?, ?, ?, ?)'
+    ).run(req.file.originalname || 'upload.csv', note, uploadedBy, giftName);
     const batchId = batch.lastInsertRowid;
 
     const insert = db.prepare(
@@ -226,7 +227,7 @@ function buildCodeFilters(query) {
 }
 
 const CODE_SELECT = `
-  SELECT k.*, b.filename AS batch_filename, c.name AS campaign_name
+  SELECT k.*, b.filename AS batch_filename, b.gift_name AS gift_name, c.name AS campaign_name
   FROM codes k
   JOIN batches b ON b.id = k.batch_id
   LEFT JOIN campaigns c ON c.id = k.campaign_id

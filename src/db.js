@@ -64,6 +64,11 @@ CREATE INDEX IF NOT EXISTS idx_codes_batch ON codes(batch_id);
 CREATE INDEX IF NOT EXISTS idx_codes_campaign ON codes(campaign_id);
 `);
 
+const batchCols = db.prepare('PRAGMA table_info(batches)').all().map((c) => c.name);
+if (!batchCols.includes('gift_name')) {
+  db.exec("ALTER TABLE batches ADD COLUMN gift_name TEXT NOT NULL DEFAULT ''");
+}
+
 const campaignCols = db.prepare('PRAGMA table_info(campaigns)').all().map((c) => c.name);
 if (!campaignCols.includes('planned_count')) {
   db.exec('ALTER TABLE campaigns ADD COLUMN planned_count INTEGER NOT NULL DEFAULT 0');

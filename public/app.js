@@ -204,6 +204,7 @@ function renderCodeRow(item) {
     ? `<button class="btn btn-small btn-danger" data-action="unredeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">取消兌換</button>`
     : `<button class="btn btn-small" data-action="redeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">標記兌換</button>`;
   return `<tr>
+    <td>${escapeHtml(item.gift_name || '')}</td>
     <td><code>${escapeHtml(item.code)}</code></td>
     <td>${escapeHtml(item.face_value)}</td>
     <td>${escapeHtml(item.expires_at)}</td>
@@ -310,6 +311,7 @@ $('#upload-form').addEventListener('submit', async (e) => {
   if (!file) return;
   const fd = new FormData();
   fd.append('file', file);
+  fd.append('gift_name', $('#upload-gift-name').value);
   fd.append('uploaded_by', $('#upload-by').value);
   fd.append('note', $('#upload-note').value);
   const box = $('#upload-result');

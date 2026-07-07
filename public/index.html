@@ -61,11 +61,11 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>禮券碼</th><th>面額</th><th>到期日</th><th>狀態</th>
+            <th>禮券名稱</th><th>禮券碼</th><th>面額</th><th>到期日</th><th>狀態</th>
             <th>使用活動</th><th>經手人</th><th>兌換時間</th><th>備註</th><th>操作</th>
           </tr>
         </thead>
-        <tbody id="codes-body"><tr><td colspan="9" class="empty">載入中…</td></tr></tbody>
+        <tbody id="codes-body"><tr><td colspan="10" class="empty">載入中…</td></tr></tbody>
       </table>
       <div class="pagination">
         <button class="btn btn-secondary" id="btn-prev">上一頁</button>
@@ -84,6 +84,7 @@
           與資料庫重複的禮券碼會自動略過。
         </p>
         <label>CSV 檔案 <input type="file" id="upload-file" accept=".csv,text/csv" required></label>
+        <label>禮券名稱（選填） <input type="text" id="upload-gift-name" placeholder="例：全家便利商店500元禮券"></label>
         <label>上傳人（選填） <input type="text" id="upload-by" placeholder="例：王小明"></label>
         <label>批次備註（選填） <input type="text" id="upload-note" placeholder="例：2026 Q3 採購 500 元券"></label>
         <button type="submit" class="btn">上傳</button>
