@@ -108,7 +108,8 @@ function runSync() {
       continue;
     }
 
-    const giftName = path.basename(file, path.extname(file));
+    // 優先用 CSV 內偵測到的禮品名稱欄位，否則退回檔名（去副檔名）
+    const giftName = parsed.gift_name || path.basename(file, path.extname(file));
 
     const fileResult = db.transaction(() => {
       const batch = db.prepare(

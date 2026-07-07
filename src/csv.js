@@ -11,6 +11,10 @@ const CODE_HEADERS = [
 ];
 const VALUE_HEADERS = ['face_value', 'facevalue', 'value', 'amount', 'price', '面額', '金額', '票面金額'];
 const EXPIRY_HEADERS = ['expires_at', 'expiry', 'expire', 'expiration', 'expire_date', 'valid_until', '到期日', '有效期限', '效期'];
+const GIFT_NAME_HEADERS = [
+  'gift_name', 'giftname', 'gift name', 'product_name', 'productname', 'product name', 'item_name',
+  '禮品名稱', '禮券名稱', '商品名稱', '品名', '禮品', '禮券',
+];
 
 /**
  * 把 CSV buffer 解成字串，處理 Windows 上常見的編碼：
@@ -67,9 +71,11 @@ function parseGiftcodeCsv(buffer) {
   let expiryIdx = -1;
   let dataStart = 1;
 
+  let giftNameIdx = -1;
   if (codeIdx !== -1) {
     valueIdx = findColumn(headers, VALUE_HEADERS);
     expiryIdx = findColumn(headers, EXPIRY_HEADERS);
+    giftNameIdx = findColumn(headers, GIFT_NAME_HEADERS);
   } else {
     // 無法辨識標頭：把第一欄當禮券碼
     codeIdx = 0;
@@ -97,9 +103,14 @@ function parseGiftcodeCsv(buffer) {
       code,
       face_value: valueIdx !== -1 ? String(rec[valueIdx] || '').trim() : '',
       expires_at: expiryIdx !== -1 ? String(rec[expiryIdx] || '').trim() : '',
+      gift_name: giftNameIdx !== -1 ? String(rec[giftNameIdx] || '').trim() : '',
     });
   }
-  return { rows, errors };
+  // 取第一個非空的 gift_name 作為整批的禮品名稱
+  const gift_name = giftNameIdx !== -1
+    ? (rows.find((r) => r.gift_name)?.gift_name || '')
+    : '';
+  return { rows, errors, gift_name };
 }
 
 module.exports = { parseGiftcodeCsv };

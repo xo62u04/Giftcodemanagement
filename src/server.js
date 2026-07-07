@@ -97,7 +97,8 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
 
   const note = String(req.body.note || '').trim();
   const uploadedBy = String(req.body.uploaded_by || '').trim();
-  const giftName = String(req.body.gift_name || '').trim();
+  // 優先用手動填入的名稱，否則從 CSV 欄位偵測
+  const giftName = String(req.body.gift_name || '').trim() || parsed.gift_name || '';
   const duplicates = [];
 
   const result = db.transaction(() => {
