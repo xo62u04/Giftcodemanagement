@@ -52,22 +52,13 @@ CSV 編碼不用擔心：UTF-8（含 BOM）、Big5/CP950（繁中 Excel 存
 
 ## NAS 同步
 
-公司 NAS 上的禮券 CSV 可以自動匯入。`SYNC_DIR` 直接支援 UNC 路徑或
-已對應的網路磁碟機：
+公司 NAS 上的禮券 CSV 可以自動匯入。**直接在後台設定即可**：
+「上傳 CSV」分頁 →「NAS 同步」→ 填入資料夾路徑 → 儲存路徑 → 立即同步。
+支援 UNC 路徑（`\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts`）
+或已對應的網路磁碟機（`Z:\gifts`），路徑設定存在資料庫，重啟不會消失。
 
-```bat
-set "SYNC_DIR=\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts"
-set "SYNC_INTERVAL_MINUTES=30"
-npm start
-```
-
-PowerShell 則是：
-
-```powershell
-$env:SYNC_DIR = '\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts'
-$env:SYNC_INTERVAL_MINUTES = '30'
-npm start
-```
+也可以用環境變數 `SYNC_DIR` 預設路徑（後台設定優先），並以
+`SYNC_INTERVAL_MINUTES` 啟用定時自動同步（`start.bat` 已內建）。
 
 若 NAS 需要帳號密碼，先在檔案總管開啟過該路徑並勾選「記住我的認證」
 （或用 `cmdkey /add:172.22.91.100 /user:帳號 /pass`），服務就能讀取。

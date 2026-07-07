@@ -269,23 +269,44 @@ $('#bulk-form').addEventListener('submit', async (e) => {
 });
 
 // ---- NAS 同步 ----
-async function loadSyncStatus() {
+function renderSyncStatus(s) {
   const info = $('#sync-info');
+  const dirInput = $('#sync-dir');
+  if (document.activeElement !== dirInput) dirInput.value = s.sync_dir || '';
+  if (!s.configured) {
+    info.textContent = '尚未設定同步資料夾：填入路徑並按「儲存路徑」。';
+    $('#btn-sync').disabled = true;
+    return;
+  }
+  $('#btn-sync').disabled = false;
+  const lines = [s.dir_exists ? '路徑可讀取 ✓' : '⚠️ 目前無法讀取此路徑，請確認 NAS 連線與權限'];
+  lines.push(s.last_synced_at ? `上次同步：${formatTime(s.last_synced_at)}，已追蹤 ${s.files.length} 個檔案` : '尚未同步過');
+  info.textContent = lines.join('　｜　');
+}
+
+async function loadSyncStatus() {
   try {
-    const s = await api('/api/sync/status');
-    if (!s.configured) {
-      info.textContent = '尚未設定同步資料夾。請以環境變數 SYNC_DIR 指定 NAS 掛載路徑（可再用 SYNC_INTERVAL_MINUTES 設定自動同步頻率）。';
-      $('#btn-sync').disabled = true;
-      return;
-    }
-    $('#btn-sync').disabled = false;
-    const lines = [`同步資料夾：${s.sync_dir}${s.dir_exists ? '' : '（目前無法讀取，請確認 NAS 已掛載）'}`];
-    lines.push(s.last_synced_at ? `上次同步：${formatTime(s.last_synced_at)}，已追蹤 ${s.files.length} 個檔案` : '尚未同步過');
-    info.textContent = lines.join('　｜　');
+    renderSyncStatus(await api('/api/sync/status'));
   } catch (err) {
-    info.textContent = err.message;
+    $('#sync-info').textContent = err.message;
   }
 }
+
+$('#sync-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const s = await api('/api/sync/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sync_dir: $('#sync-dir').value }),
+    });
+    $('#sync-dir').blur();
+    renderSyncStatus(s);
+    toast('已儲存同步路徑');
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
 
 $('#btn-sync').addEventListener('click', async () => {
   const box = $('#sync-result');

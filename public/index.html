@@ -80,11 +80,22 @@
       </form>
       <div id="upload-result" class="result-box hidden"></div>
 
-      <div class="card-form" style="margin-top: 24px;">
+      <form class="card-form" style="margin-top: 24px;" id="sync-form">
         <h2>NAS 同步</h2>
+        <p class="hint">
+          填入 NAS 上放禮券 CSV 的資料夾路徑（例：<code>\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts</code>
+          或已對應的網路磁碟機 <code>Z:\gifts</code>），儲存後即可同步。
+          已同步過且未變動的檔案會自動跳過。
+        </p>
+        <label>NAS 資料夾路徑
+          <input type="text" id="sync-dir" placeholder="\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts">
+        </label>
         <p class="hint" id="sync-info">載入同步狀態中…</p>
-        <button type="button" class="btn" id="btn-sync">立即同步</button>
-      </div>
+        <div class="dialog-actions" style="justify-content: flex-start;">
+          <button type="submit" class="btn btn-secondary">儲存路徑</button>
+          <button type="button" class="btn" id="btn-sync">立即同步</button>
+        </div>
+      </form>
       <div id="sync-result" class="result-box hidden"></div>
     </section>
 

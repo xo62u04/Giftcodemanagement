@@ -16,11 +16,27 @@ CREATE TABLE IF NOT EXISTS sync_files (
   duplicate_count INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `);
 
-// SYNC_DIR 每次呼叫時讀取，方便測試與重新掛載 NAS 後不用重啟
+// 同步資料夾：後台介面設定（存在資料庫）優先，環境變數 SYNC_DIR 為備援
 function getSyncDir() {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'sync_dir'").get();
+  if (row && row.value.trim()) return row.value.trim();
   return (process.env.SYNC_DIR || '').trim();
+}
+
+function setSyncDir(dir) {
+  const trimmed = String(dir || '').trim();
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('sync_dir', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(trimmed);
+  return trimmed;
 }
 
 function listCsvFiles(dir) {
@@ -146,4 +162,4 @@ function getSyncStatus() {
   };
 }
 
-module.exports = { runSync, getSyncStatus };
+module.exports = { runSync, getSyncStatus, setSyncDir };

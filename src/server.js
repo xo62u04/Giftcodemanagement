@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv } = require('./csv');
-const { runSync, getSyncStatus } = require('./sync');
+const { runSync, getSyncStatus, setSyncDir } = require('./sync');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -264,6 +264,11 @@ app.get('/api/export.csv', (req, res) => {
 
 // ---- NAS 同步 ----
 app.get('/api/sync/status', (req, res) => {
+  res.json(getSyncStatus());
+});
+
+app.put('/api/sync/config', (req, res) => {
+  setSyncDir(req.body.sync_dir);
   res.json(getSyncStatus());
 });
 
