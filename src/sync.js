@@ -88,7 +88,7 @@ function runSync() {
   );
 
   for (const file of files) {
-    const rel = path.relative(dir, file);
+    const rel = path.relative(dir, file).split(path.sep).join('/');
     const stat = fs.statSync(file);
     const prev = findSynced.get(rel);
     if (prev && prev.mtime_ms === stat.mtimeMs && prev.size === stat.size) {

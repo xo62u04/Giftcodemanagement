@@ -35,6 +35,30 @@ function formatTime(iso) {
   return d.toLocaleString('zh-TW', { hour12: false });
 }
 
+let currentUser = null;
+
+async function loadCurrentUser() {
+  try {
+    currentUser = await api('/api/current-user');
+    const label = currentUser.staff
+      ? `${currentUser.staff.name} (${currentUser.staff.employee_id || currentUser.windows_username})`
+      : `Windows: ${currentUser.windows_username || '-'}`;
+    $('#current-user-badge').textContent = label;
+    autoFillUserFields();
+  } catch {
+    $('#current-user-badge').textContent = '使用者讀取失敗';
+  }
+}
+
+function autoFillUserFields() {
+  if (!currentUser) return;
+  const displayName = currentUser.staff ? currentUser.staff.name : currentUser.windows_username;
+  ['#upload-by', '#bulk-by', '#redeem-by'].forEach((sel) => {
+    const el = $(sel);
+    if (el && !el.value) el.value = displayName || '';
+  });
+}
+
 // ---- 分頁切換 ----
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -46,26 +70,92 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'codes') { loadFilterOptions(); loadCodes(); }
     if (btn.dataset.tab === 'batches') loadBatches();
     if (btn.dataset.tab === 'bulk') loadCampaignList();
-    if (btn.dataset.tab === 'upload') loadSyncStatus();
+    if (btn.dataset.tab === 'upload') { loadSyncStatus(); loadBackupStatus(); }
+    if (btn.dataset.tab === 'staff') loadStaff();
   });
 });
 
 // ---- 總覽 ----
 async function loadStats() {
   try {
-    const s = await api('/api/stats');
+    const [s, campaigns] = await Promise.all([api('/api/stats'), api('/api/campaigns')]);
     $('#stat-total').textContent = s.total;
     $('#stat-available').textContent = s.available;
     $('#stat-redeemed').textContent = s.redeemed;
     $('#stat-batches').textContent = s.batch_count;
     const body = $('#campaign-stats');
-    body.innerHTML = s.campaigns.length
-      ? s.campaigns.map((c) => `<tr><td>${escapeHtml(c.name)}</td><td>${c.redeemed_count}</td></tr>`).join('')
-      : '<tr><td colspan="2" class="empty">尚無活動</td></tr>';
+    const fmt = (n) => n == null ? '-' : `$${Number(n).toLocaleString()}`;
+    body.innerHTML = campaigns.length
+      ? campaigns.map((c) => {
+        const over = c.remaining != null && c.remaining < 0;
+        return `<tr class="${over ? 'over-budget' : ''}">
+          <td>${escapeHtml(c.name)}</td>
+          <td>${c.planned_count || '-'}</td>
+          <td>${c.redeemed_count}</td>
+          <td>${c.budget ? fmt(c.budget) : '-'}</td>
+          <td>${fmt(c.cost || 0)}</td>
+          <td>${c.budget ? fmt(c.remaining) : '-'}</td>
+          <td><button class="btn btn-small" data-action="edit-campaign" data-id="${c.id}">編輯</button></td>
+        </tr>`;
+      }).join('')
+      : '<tr><td colspan="7" class="empty">尚無活動</td></tr>';
   } catch (err) {
     toast(err.message, true);
   }
 }
+
+// ---- 活動管理 ----
+$('#btn-add-campaign').addEventListener('click', () => {
+  $('#campaign-dialog-title').textContent = '新增活動';
+  $('#campaign-id').value = '';
+  $('#campaign-form').reset();
+  $('#campaign-planned').value = 0;
+  $('#campaign-budget').value = 0;
+  $('#campaign-dialog').showModal();
+});
+
+$('#campaign-cancel').addEventListener('click', () => $('#campaign-dialog').close());
+
+$('#campaign-stats').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action="edit-campaign"]');
+  if (!btn) return;
+  try {
+    const campaigns = await api('/api/campaigns');
+    const campaign = campaigns.find((c) => c.id == btn.dataset.id);
+    if (!campaign) return;
+    $('#campaign-dialog-title').textContent = '編輯活動';
+    $('#campaign-id').value = campaign.id;
+    $('#campaign-name').value = campaign.name;
+    $('#campaign-planned').value = campaign.planned_count || 0;
+    $('#campaign-budget').value = campaign.budget || 0;
+    $('#campaign-dialog').showModal();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$('#campaign-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#campaign-id').value;
+  const body = {
+    name: $('#campaign-name').value,
+    planned_count: Number($('#campaign-planned').value) || 0,
+    budget: Number($('#campaign-budget').value) || 0,
+  };
+  try {
+    await api(id ? `/api/campaigns/${id}` : '/api/campaigns', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    $('#campaign-dialog').close();
+    toast(id ? '活動已更新' : '活動已新增');
+    loadStats();
+    loadCampaignList();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
 
 // ---- 禮券列表 ----
 function currentFilters() {
@@ -168,6 +258,7 @@ $('#codes-body').addEventListener('click', async (e) => {
     redeemTargetId = btn.dataset.id;
     $('#redeem-code-label').textContent = btn.dataset.code;
     $('#redeem-form').reset();
+    autoFillUserFields();
     loadCampaignList();
     $('#redeem-dialog').showModal();
   } else if (btn.dataset.action === 'unredeem') {
@@ -221,6 +312,12 @@ $('#upload-form').addEventListener('submit', async (e) => {
     if (r.duplicates.length) {
       html += `，與資料庫重複略過 <strong>${r.duplicates.length}</strong> 筆`;
       html += `<ul>${r.duplicates.slice(0, 20).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}${r.duplicates.length > 20 ? '<li>…</li>' : ''}</ul>`;
+    }
+    if (r.cost_summary) {
+      html += `<br>面額合計：<strong>$${Number(r.cost_summary.total).toLocaleString()}</strong>`;
+      if (r.cost_summary.no_value > 0) {
+        html += `（${r.cost_summary.with_value} 筆有面額，${r.cost_summary.no_value} 筆無面額）`;
+      }
     }
     if (r.warnings.length) {
       html += `<ul>${r.warnings.slice(0, 20).map((w) => `<li>${escapeHtml(w)}</li>`).join('')}${r.warnings.length > 20 ? '<li>…</li>' : ''}</ul>`;
@@ -340,6 +437,68 @@ $('#btn-sync').addEventListener('click', async () => {
 });
 
 // ---- 上傳紀錄 ----
+// ---- DB 備份 ----
+function renderBackupStatus(s) {
+  const info = $('#backup-info');
+  const dirInput = $('#backup-dir');
+  if (document.activeElement !== dirInput) dirInput.value = s.backup_dir || '';
+  if (!s.configured) {
+    info.textContent = '尚未設定備份資料夾：填入路徑並按「儲存設定」。';
+    $('#btn-backup-now').disabled = true;
+  } else {
+    $('#btn-backup-now').disabled = false;
+    info.textContent = s.dir_exists ? '路徑可讀取' : '目前無法讀取此路徑，請確認權限或 NAS 連線';
+  }
+  $('#backup-list').innerHTML = s.files.length
+    ? s.files.slice(0, 5).map((f) => `<li>${escapeHtml(f)}</li>`).join('')
+    : '';
+}
+
+async function loadBackupStatus() {
+  try {
+    renderBackupStatus(await api('/api/backup/config'));
+  } catch (err) {
+    $('#backup-info').textContent = err.message;
+  }
+}
+
+$('#backup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const status = await api('/api/backup/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup_dir: $('#backup-dir').value }),
+    });
+    $('#backup-dir').blur();
+    renderBackupStatus(status);
+    toast('已儲存備份設定');
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$('#btn-backup-now').addEventListener('click', async () => {
+  const box = $('#backup-result');
+  const btn = $('#btn-backup-now');
+  btn.disabled = true;
+  btn.textContent = '備份中...';
+  try {
+    const result = await api('/api/backup', { method: 'POST' });
+    box.classList.remove('hidden', 'error');
+    box.textContent = `備份完成：${result.dest}`;
+    toast('備份完成');
+    loadBackupStatus();
+  } catch (err) {
+    box.classList.remove('hidden');
+    box.classList.add('error');
+    box.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '立即備份';
+  }
+});
+
 async function loadBatches() {
   try {
     const batches = await api('/api/batches');
@@ -361,5 +520,92 @@ async function loadBatches() {
   }
 }
 
+// ---- 同仁管理 ----
+async function loadStaff() {
+  try {
+    const staff = await api('/api/staff');
+    const body = $('#staff-body');
+    body.innerHTML = staff.length
+      ? staff.map((s) => `<tr>
+          <td>${escapeHtml(s.name)}</td>
+          <td>${escapeHtml(s.department)}</td>
+          <td>${escapeHtml(s.employee_id)}</td>
+          <td>${escapeHtml(s.windows_username)}</td>
+          <td>
+            <button class="btn btn-small" data-action="edit-staff" data-id="${s.id}">編輯</button>
+            <button class="btn btn-small btn-danger" data-action="del-staff" data-id="${s.id}" data-name="${escapeHtml(s.name)}">刪除</button>
+          </td>
+        </tr>`).join('')
+      : '<tr><td colspan="5" class="empty">尚無同仁資料</td></tr>';
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('#btn-add-staff').addEventListener('click', () => {
+  $('#staff-dialog-title').textContent = '新增同仁';
+  $('#staff-id').value = '';
+  $('#staff-form').reset();
+  $('#staff-dialog').showModal();
+});
+
+$('#staff-cancel').addEventListener('click', () => $('#staff-dialog').close());
+
+$('#staff-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'edit-staff') {
+    try {
+      const staff = await api('/api/staff');
+      const item = staff.find((s) => s.id == btn.dataset.id);
+      if (!item) return;
+      $('#staff-dialog-title').textContent = '編輯同仁';
+      $('#staff-id').value = item.id;
+      $('#staff-name').value = item.name;
+      $('#staff-dept').value = item.department;
+      $('#staff-empid').value = item.employee_id;
+      $('#staff-winuser').value = item.windows_username;
+      $('#staff-dialog').showModal();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  } else if (btn.dataset.action === 'del-staff') {
+    if (!confirm(`確定刪除 ${btn.dataset.name}？`)) return;
+    try {
+      await api(`/api/staff/${btn.dataset.id}`, { method: 'DELETE' });
+      toast('同仁已刪除');
+      loadStaff();
+      loadCurrentUser();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+});
+
+$('#staff-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#staff-id').value;
+  const body = {
+    name: $('#staff-name').value,
+    department: $('#staff-dept').value,
+    employee_id: $('#staff-empid').value,
+    windows_username: $('#staff-winuser').value,
+  };
+  try {
+    await api(id ? `/api/staff/${id}` : '/api/staff', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    $('#staff-dialog').close();
+    toast(id ? '同仁已更新' : '同仁已新增');
+    loadStaff();
+    loadCurrentUser();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
 // 初始載入
 loadStats();
+loadCurrentUser();

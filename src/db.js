@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS batches (
 CREATE TABLE IF NOT EXISTS campaigns (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
+  planned_count INTEGER NOT NULL DEFAULT 0,
+  budget REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
@@ -43,9 +45,31 @@ CREATE TABLE IF NOT EXISTS codes (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+CREATE TABLE IF NOT EXISTS staff (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  department TEXT NOT NULL DEFAULT '',
+  employee_id TEXT NOT NULL DEFAULT '',
+  windows_username TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status);
 CREATE INDEX IF NOT EXISTS idx_codes_batch ON codes(batch_id);
 CREATE INDEX IF NOT EXISTS idx_codes_campaign ON codes(campaign_id);
 `);
+
+const campaignCols = db.prepare('PRAGMA table_info(campaigns)').all().map((c) => c.name);
+if (!campaignCols.includes('planned_count')) {
+  db.exec('ALTER TABLE campaigns ADD COLUMN planned_count INTEGER NOT NULL DEFAULT 0');
+}
+if (!campaignCols.includes('budget')) {
+  db.exec('ALTER TABLE campaigns ADD COLUMN budget REAL NOT NULL DEFAULT 0');
+}
 
 module.exports = db;

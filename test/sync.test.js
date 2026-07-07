@@ -11,6 +11,7 @@ const SYNC_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'giftcode-sync-nas-'));
 process.env.SYNC_DIR = SYNC_DIR;
 
 const app = require('../src/server');
+const db = require('../src/db');
 
 let server;
 let base;
@@ -21,8 +22,9 @@ before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => {
-  server.close();
+after(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  db.close();
   fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });
   fs.rmSync(SYNC_DIR, { recursive: true, force: true });
 });

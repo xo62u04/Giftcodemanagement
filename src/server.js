@@ -6,14 +6,24 @@ const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv } = require('./csv');
 const { runSync, getSyncStatus, setSyncDir } = require('./sync');
+const staffRouter = require('./staff');
+const backup = require('./backup');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 app.use(express.json());
+app.use('/api', staffRouter);
+app.use('/api', backup.router);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const nowIso = () => new Date().toISOString();
+
+function parseFaceValue(value) {
+  if (value == null || value === '') return null;
+  const match = String(value).replace(/,/g, '').match(/\d+(\.\d+)?/);
+  return match ? Number.parseFloat(match[0]) : null;
+}
 
 function getOrCreateCampaign(name) {
   const trimmed = String(name || '').trim();
@@ -86,12 +96,27 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
     return { batchId, imported };
   })();
 
+  const allImported = db.prepare('SELECT face_value FROM codes WHERE batch_id = ?').all(result.batchId);
+  let totalCost = 0;
+  let withValue = 0;
+  let noValue = 0;
+  for (const row of allImported) {
+    const value = parseFaceValue(row.face_value);
+    if (value == null) {
+      noValue++;
+    } else {
+      totalCost += value;
+      withValue++;
+    }
+  }
+
   res.status(201).json({
     batch_id: result.batchId,
     total: parsed.rows.length,
     imported: result.imported,
     duplicates,
     warnings: parsed.errors,
+    cost_summary: { total: totalCost, with_value: withValue, no_value: noValue },
   });
 });
 
@@ -101,21 +126,75 @@ app.get('/api/batches', (req, res) => {
 
 // ---- 活動 ----
 app.get('/api/campaigns', (req, res) => {
-  res.json(db.prepare(`
+  const campaigns = db.prepare(`
     SELECT c.*, COUNT(k.id) AS redeemed_count
     FROM campaigns c LEFT JOIN codes k ON k.campaign_id = c.id AND k.status = 'redeemed'
     GROUP BY c.id ORDER BY c.created_at DESC
-  `).all());
+  `).all();
+
+  const costRows = db.prepare(`
+    SELECT campaign_id, face_value
+    FROM codes
+    WHERE status = 'redeemed' AND campaign_id IS NOT NULL
+  `).all();
+  const costMap = new Map();
+  for (const row of costRows) {
+    const value = parseFaceValue(row.face_value);
+    if (value == null) continue;
+    costMap.set(row.campaign_id, (costMap.get(row.campaign_id) || 0) + value);
+  }
+
+  res.json(campaigns.map((campaign) => {
+    const cost = costMap.get(campaign.id) || 0;
+    return {
+      ...campaign,
+      cost,
+      remaining: campaign.budget > 0 ? campaign.budget - cost : null,
+    };
+  }));
 });
 
 app.post('/api/campaigns', (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: '活動名稱不可為空' });
-  const id = getOrCreateCampaign(name);
-  res.status(201).json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id));
+  try {
+    const result = db.prepare(`
+      INSERT INTO campaigns (name, planned_count, budget)
+      VALUES (?, ?, ?)
+    `).run(name, Math.max(0, Number(req.body.planned_count) || 0), Math.max(0, Number(req.body.budget) || 0));
+    res.status(201).json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(result.lastInsertRowid));
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Campaign already exists' });
+    throw err;
+  }
 });
 
 // ---- 禮券查詢 ----
+app.put('/api/campaigns/:id', (req, res) => {
+  const existing = db.prepare('SELECT id FROM campaigns WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Campaign not found' });
+
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Campaign name is required' });
+
+  try {
+    db.prepare(`
+      UPDATE campaigns
+      SET name = ?, planned_count = ?, budget = ?
+      WHERE id = ?
+    `).run(
+      name,
+      Math.max(0, Number(req.body.planned_count) || 0),
+      Math.max(0, Number(req.body.budget) || 0),
+      req.params.id
+    );
+    res.json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id));
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Campaign already exists' });
+    throw err;
+  }
+});
+
 function buildCodeFilters(query) {
   const where = [];
   const params = {};
@@ -309,6 +388,9 @@ if (require.main === module) {
       }
     }, intervalMin * 60 * 1000).unref();
   }
+
+  backup.scheduleDailyBackup();
 }
 
+app.parseFaceValue = parseFaceValue;
 module.exports = app;
