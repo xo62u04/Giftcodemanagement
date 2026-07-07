@@ -41,18 +41,36 @@ npm start          # http://localhost:3000
 | `SYNC_DIR` | （未設定） | NAS 同步資料夾（見下方） |
 | `SYNC_INTERVAL_MINUTES` | （未設定） | 自動同步間隔（分鐘），未設定則只能手動同步 |
 
+## 在 Windows 上使用
+
+1. 安裝 [Node.js LTS 64 位元版](https://nodejs.org)
+2. 雙擊 `start.bat` 即可啟動（第一次會自動安裝相依套件），瀏覽器開 `http://localhost:3000`
+3. NAS 路徑已預設在 `start.bat` 內，需要調整時用記事本編輯該檔的 `SYNC_DIR`
+
+CSV 編碼不用擔心：UTF-8（含 BOM）、Big5/CP950（繁中 Excel 存
+「CSV (逗號分隔)」的預設 ANSI 編碼）、UTF-16 都能自動判斷。
+
 ## NAS 同步
 
-公司 NAS 上的禮券 CSV 可以自動匯入。先把 NAS 掛載成本機路徑（SMB/NFS），
-再以 `SYNC_DIR` 指定該路徑：
+公司 NAS 上的禮券 CSV 可以自動匯入。`SYNC_DIR` 直接支援 UNC 路徑或
+已對應的網路磁碟機：
 
-```bash
-# 例：掛載 NAS 共享資料夾（依實際環境調整）
-sudo mount -t cifs //nas.internal/giftcodes /mnt/nas-giftcodes -o ro,username=...
-
-# 啟動時指定同步資料夾，並每 30 分鐘自動同步
-SYNC_DIR=/mnt/nas-giftcodes SYNC_INTERVAL_MINUTES=30 npm start
+```bat
+set "SYNC_DIR=\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts"
+set "SYNC_INTERVAL_MINUTES=30"
+npm start
 ```
+
+PowerShell 則是：
+
+```powershell
+$env:SYNC_DIR = '\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts'
+$env:SYNC_INTERVAL_MINUTES = '30'
+npm start
+```
+
+若 NAS 需要帳號密碼，先在檔案總管開啟過該路徑並勾選「記住我的認證」
+（或用 `cmdkey /add:172.22.91.100 /user:帳號 /pass`），服務就能讀取。
 
 同步行為：
 

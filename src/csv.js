@@ -1,6 +1,7 @@
 'use strict';
 
 const { parse } = require('csv-parse/sync');
+const iconv = require('iconv-lite');
 
 // 各欄位可接受的標頭名稱（不分大小寫）
 const CODE_HEADERS = [
@@ -10,6 +11,27 @@ const CODE_HEADERS = [
 ];
 const VALUE_HEADERS = ['face_value', 'facevalue', 'value', 'amount', 'price', '面額', '金額', '票面金額'];
 const EXPIRY_HEADERS = ['expires_at', 'expiry', 'expire', 'expiration', 'expire_date', 'valid_until', '到期日', '有效期限', '效期'];
+
+/**
+ * 把 CSV buffer 解成字串，處理 Windows 上常見的編碼：
+ * - UTF-8（含 BOM）
+ * - UTF-16 LE/BE（Excel「Unicode 文字」）
+ * - Big5/CP950（繁中 Windows Excel 存「CSV (逗號分隔)」的 ANSI 預設）
+ */
+function decodeCsvBuffer(buffer) {
+  if (buffer.length >= 2) {
+    if (buffer[0] === 0xff && buffer[1] === 0xfe) return iconv.decode(buffer, 'utf16-le');
+    if (buffer[0] === 0xfe && buffer[1] === 0xff) return iconv.decode(buffer, 'utf16-be');
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return buffer.toString('utf8');
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    return iconv.decode(buffer, 'cp950'); // 非合法 UTF-8，視為 Big5（CP950）
+  }
+}
 
 function normalizeHeader(h) {
   return String(h || '').replace(/^﻿/, '').trim().toLowerCase();
@@ -31,7 +53,7 @@ function findColumn(headers, candidates) {
  * 回傳 { rows: [{code, face_value, expires_at}], errors: [string] }
  */
 function parseGiftcodeCsv(buffer) {
-  const records = parse(buffer, {
+  const records = parse(decodeCsvBuffer(buffer), {
     bom: true,
     trim: true,
     skip_empty_lines: true,

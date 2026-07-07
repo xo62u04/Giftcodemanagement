@@ -26,7 +26,8 @@ after(() => {
 
 async function uploadCsv(content, filename = 'codes.csv') {
   const fd = new FormData();
-  fd.append('file', new Blob([content], { type: 'text/csv' }), filename);
+  const payload = typeof content === 'string' ? content : new Uint8Array(content);
+  fd.append('file', new Blob([payload], { type: 'text/csv' }), filename);
   fd.append('uploaded_by', '測試員');
   fd.append('note', '單元測試批次');
   const res = await fetch(`${base}/api/batches`, { method: 'POST', body: fd });
@@ -58,6 +59,26 @@ test('檔內重複的禮券碼會回報警告', async () => {
   const { body } = await uploadCsv('code\nDUP-01\nDUP-01\n');
   assert.strictEqual(body.imported, 1);
   assert.strictEqual(body.warnings.length, 1);
+});
+
+test('Big5（CP950）編碼的 CSV 可正確匯入中文標頭', async () => {
+  const iconv = require('iconv-lite');
+  const big5 = iconv.encode('禮券碼,面額\r\nBIG5-001,500\r\nBIG5-002,500\r\n', 'cp950');
+  const { status, body } = await uploadCsv(big5, 'big5.csv');
+  assert.strictEqual(status, 201);
+  assert.strictEqual(body.imported, 2);
+
+  const list = await (await fetch(`${base}/api/codes?q=BIG5-`)).json();
+  assert.strictEqual(list.total, 2);
+  assert.strictEqual(list.items[0].face_value, '500');
+});
+
+test('UTF-16 LE（含 BOM）的 CSV 可正確匯入', async () => {
+  const iconv = require('iconv-lite');
+  const utf16 = iconv.encode('code,面額\r\nU16-001,300\r\n', 'utf16-le', { addBOM: true });
+  const { status, body } = await uploadCsv(utf16, 'utf16.csv');
+  assert.strictEqual(status, 201);
+  assert.strictEqual(body.imported, 1);
 });
 
 test('空檔案回傳 400', async () => {
@@ -138,9 +159,9 @@ test('取消兌換後禮券恢復可用', async () => {
 
 test('統計數字正確', async () => {
   const stats = await (await fetch(`${base}/api/stats`)).json();
-  assert.strictEqual(stats.total, 7); // GIFT-001~003, GIFT-100, NOHEAD-01~02, DUP-01
+  assert.strictEqual(stats.total, 10); // GIFT-001~003, GIFT-100, NOHEAD-01~02, DUP-01, BIG5-001~002, U16-001
   assert.strictEqual(stats.redeemed, 1); // 只剩 GIFT-001（GIFT-002 已取消兌換）
-  assert.strictEqual(stats.available, 6);
+  assert.strictEqual(stats.available, 9);
   const campaign = stats.campaigns.find((c) => c.name === '週年慶抽獎');
   assert.strictEqual(campaign.redeemed_count, 1);
 });
