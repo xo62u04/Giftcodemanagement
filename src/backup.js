@@ -7,6 +7,7 @@ const db = require('./db');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_PATH = path.join(DATA_DIR, 'giftcodes.db');
+const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
 const SETTING_KEY = 'backup_dir';
 const MAX_BACKUPS = 30;
 
@@ -24,6 +25,10 @@ function setBackupDir(dir) {
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(SETTING_KEY, trimmed);
+  // 同步寫入 JSON 檔，讓 db.js 在開啟 DB 前能讀取（避免循環依賴）
+  try {
+    fs.writeFileSync(BACKUP_CONFIG_FILE, JSON.stringify({ backup_dir: trimmed }), 'utf8');
+  } catch { /* 非致命，忽略 */ }
   return trimmed;
 }
 
