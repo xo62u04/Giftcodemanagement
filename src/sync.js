@@ -108,10 +108,12 @@ function runSync() {
       continue;
     }
 
+    const giftName = path.basename(file, path.extname(file));
+
     const fileResult = db.transaction(() => {
       const batch = db.prepare(
-        'INSERT INTO batches (filename, note, uploaded_by) VALUES (?, ?, ?)'
-      ).run(rel, `NAS 同步（${dir}）`, 'NAS 同步');
+        'INSERT INTO batches (filename, note, uploaded_by, gift_name) VALUES (?, ?, ?, ?)'
+      ).run(rel, `NAS 同步（${dir}）`, 'NAS 同步', giftName);
       const batchId = batch.lastInsertRowid;
 
       let imported = 0;
