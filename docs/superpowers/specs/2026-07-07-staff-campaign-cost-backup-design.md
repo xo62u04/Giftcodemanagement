@@ -37,10 +37,14 @@ CREATE TABLE IF NOT EXISTS staff (
 ```sql
 ALTER TABLE campaigns ADD COLUMN planned_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE campaigns ADD COLUMN budget        REAL    NOT NULL DEFAULT 0;
+ALTER TABLE campaigns ADD COLUMN start_date    TEXT    NOT NULL DEFAULT '';
+ALTER TABLE campaigns ADD COLUMN end_date      TEXT    NOT NULL DEFAULT '';
 ```
 
 - `planned_count`：預計發送禮券張數
 - `budget`：本活動預算金額（元）
+- `start_date`：活動開始日期（格式 YYYY-MM-DD，可留空）
+- `end_date`：活動結束日期（格式 YYYY-MM-DD，可留空）
 
 ### 備份設定
 
@@ -94,8 +98,8 @@ POST/PUT body：`{ name, department, employee_id, windows_username }`
 | 方法 | 路徑                | 說明                                          |
 |------|---------------------|-----------------------------------------------|
 | GET  | /api/campaigns      | 回傳加上 `cost`（已發成本）、`remaining`（剩餘預算）|
-| POST | /api/campaigns      | 新增，body 加入 `planned_count`、`budget`     |
-| PUT  | /api/campaigns/:id  | 編輯活動（名稱、預計張數、預算）              |
+| POST | /api/campaigns      | 新增，body 加入 `planned_count`、`budget`、`start_date`、`end_date` |
+| PUT  | /api/campaigns/:id  | 編輯活動（名稱、預計張數、預算、起迄時間）    |
 
 ### DB 備份
 
@@ -131,12 +135,13 @@ POST/PUT body：`{ name, department, employee_id, windows_username }`
 
 ### 總覽分頁 — 活動表格擴充
 
-| 活動名稱 | 預計張數 | 已發張數 | 預算 | 已發成本 | 剩餘預算 |
-|---------|---------|---------|-----|---------|---------|
-| 週年慶  | 100     | 67      | $20,000 | $13,400 | $6,600 |
+| 活動名稱 | 起迄時間 | 預計張數 | 已發張數 | 預算 | 已發成本 | 剩餘預算 |
+|---------|---------|---------|---------|-----|---------|---------|
+| 週年慶  | 2026-07-01 ~ 2026-07-31 | 100 | 67 | $20,000 | $13,400 | $6,600 |
 
+- 起迄時間任一為空則顯示「–」
 - 剩餘預算為負數時，整列顯示紅色警示樣式
-- 活動名稱旁加「編輯」小按鈕（開 dialog 可修改名稱、預計張數、預算）
+- 活動名稱旁加「編輯」小按鈕（開 dialog 可修改名稱、預計張數、預算、起迄時間）
 
 ### 上傳 CSV — 成本摘要
 

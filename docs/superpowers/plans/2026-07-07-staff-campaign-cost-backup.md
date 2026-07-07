@@ -67,10 +67,12 @@ test('staff 表存在且有正確欄位', () => {
   assert.ok(cols.includes('created_at'));
 });
 
-test('campaigns 表有 planned_count 和 budget 欄位', () => {
+test('campaigns 表有 planned_count、budget、start_date、end_date 欄位', () => {
   const cols = db.prepare('PRAGMA table_info(campaigns)').all().map(c => c.name);
   assert.ok(cols.includes('planned_count'));
   assert.ok(cols.includes('budget'));
+  assert.ok(cols.includes('start_date'));
+  assert.ok(cols.includes('end_date'));
 });
 ```
 
@@ -80,7 +82,7 @@ test('campaigns 表有 planned_count 和 budget 欄位', () => {
 node --test tests/schema.test.js
 ```
 
-預期：`staff 表存在且有正確欄位` FAIL（表不存在）、`campaigns 表有 planned_count 和 budget 欄位` FAIL
+預期：`staff 表存在且有正確欄位` FAIL（表不存在）、`campaigns 表有 planned_count、budget、start_date、end_date 欄位` FAIL
 
 - [ ] **Step 3: 更新 `src/db.js`**
 
@@ -154,6 +156,12 @@ if (!campaignCols.includes('planned_count')) {
 if (!campaignCols.includes('budget')) {
   db.exec('ALTER TABLE campaigns ADD COLUMN budget REAL NOT NULL DEFAULT 0');
 }
+if (!campaignCols.includes('start_date')) {
+  db.exec("ALTER TABLE campaigns ADD COLUMN start_date TEXT NOT NULL DEFAULT ''");
+}
+if (!campaignCols.includes('end_date')) {
+  db.exec("ALTER TABLE campaigns ADD COLUMN end_date TEXT NOT NULL DEFAULT ''");
+}
 
 module.exports = db;
 ```
@@ -170,7 +178,7 @@ node --test tests/schema.test.js
 
 ```
 git add src/db.js tests/schema.test.js
-git commit -m "feat: add staff table and campaigns budget/planned_count columns"
+git commit -m "feat: add staff table and campaigns budget/planned_count/start_date/end_date columns"
 ```
 
 ---
@@ -390,7 +398,7 @@ git commit -m "feat: add staff CRUD API and Windows current-user detection"
 - Test: `tests/campaigns-cost.test.js` (create)
 
 **Interfaces:**
-- Consumes: `db` with `campaigns.planned_count`, `campaigns.budget`, `codes.face_value`
+- Consumes: `db` with `campaigns.planned_count`, `campaigns.budget`, `campaigns.start_date`, `campaigns.end_date`, `codes.face_value`
 - Produces: `GET /api/campaigns` 回應新增 `cost: number`, `remaining: number | null`；新增 `PUT /api/campaigns/:id`
 
 - [ ] **Step 1: 建立測試檔**
@@ -446,16 +454,19 @@ test('parseFaceValue 可解析各種格式', () => {
   assert.equal(parseFaceValue('abc'), null);
 });
 
-test('POST /api/campaigns 可新增含預算的活動', async () => {
+test('POST /api/campaigns 可新增含預算與起迄時間的活動', async () => {
   const { status, body } = await req('POST', '/api/campaigns', {
-    name: '週年慶', planned_count: 100, budget: 20000
+    name: '週年慶', planned_count: 100, budget: 20000,
+    start_date: '2026-07-01', end_date: '2026-07-31'
   });
   assert.equal(status, 201);
   assert.equal(body.planned_count, 100);
   assert.equal(body.budget, 20000);
+  assert.equal(body.start_date, '2026-07-01');
+  assert.equal(body.end_date, '2026-07-31');
 });
 
-test('GET /api/campaigns 包含 cost 與 remaining', async () => {
+test('GET /api/campaigns 包含 cost、remaining、start_date、end_date', async () => {
   const { status, body } = await req('GET', '/api/campaigns');
   assert.equal(status, 200);
   assert.ok(Array.isArray(body));
@@ -463,16 +474,21 @@ test('GET /api/campaigns 包含 cost 與 remaining', async () => {
   assert.ok(camp);
   assert.equal(typeof camp.cost, 'number');
   assert.equal(camp.remaining, 20000); // 尚無兌換，cost = 0
+  assert.equal(camp.start_date, '2026-07-01');
+  assert.equal(camp.end_date, '2026-07-31');
 });
 
-test('PUT /api/campaigns/:id 可編輯活動', async () => {
+test('PUT /api/campaigns/:id 可編輯活動含起迄時間', async () => {
   const camp = db.prepare('SELECT id FROM campaigns WHERE name = ?').get('週年慶');
   const { status, body } = await req('PUT', `/api/campaigns/${camp.id}`, {
-    name: '週年慶 2026', planned_count: 150, budget: 25000
+    name: '週年慶 2026', planned_count: 150, budget: 25000,
+    start_date: '2026-08-01', end_date: '2026-08-31'
   });
   assert.equal(status, 200);
   assert.equal(body.name, '週年慶 2026');
   assert.equal(body.budget, 25000);
+  assert.equal(body.start_date, '2026-08-01');
+  assert.equal(body.end_date, '2026-08-31');
 });
 ```
 
@@ -533,8 +549,14 @@ app.post('/api/campaigns', (req, res) => {
   if (!name) return res.status(400).json({ error: '活動名稱不可為空' });
   try {
     const result = db.prepare(
-      'INSERT INTO campaigns (name, planned_count, budget) VALUES (?, ?, ?)'
-    ).run(name, Number(req.body.planned_count) || 0, Number(req.body.budget) || 0);
+      'INSERT INTO campaigns (name, planned_count, budget, start_date, end_date) VALUES (?, ?, ?, ?, ?)'
+    ).run(
+      name,
+      Number(req.body.planned_count) || 0,
+      Number(req.body.budget) || 0,
+      String(req.body.start_date || '').trim(),
+      String(req.body.end_date || '').trim()
+    );
     res.status(201).json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(result.lastInsertRowid));
   } catch (err) {
     if (err.message.includes('UNIQUE')) return res.status(409).json({ error: '活動名稱已存在' });
@@ -553,8 +575,15 @@ app.put('/api/campaigns/:id', (req, res) => {
   if (!name) return res.status(400).json({ error: '活動名稱不可為空' });
   try {
     db.prepare(
-      'UPDATE campaigns SET name = ?, planned_count = ?, budget = ? WHERE id = ?'
-    ).run(name, Number(req.body.planned_count) || 0, Number(req.body.budget) || 0, req.params.id);
+      'UPDATE campaigns SET name = ?, planned_count = ?, budget = ?, start_date = ?, end_date = ? WHERE id = ?'
+    ).run(
+      name,
+      Number(req.body.planned_count) || 0,
+      Number(req.body.budget) || 0,
+      String(req.body.start_date || '').trim(),
+      String(req.body.end_date || '').trim(),
+      req.params.id
+    );
     res.json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id));
   } catch (err) {
     if (err.message.includes('UNIQUE')) return res.status(409).json({ error: '活動名稱已存在' });
@@ -1087,8 +1116,8 @@ git commit -m "feat: staff management tab and Windows user auto-detect in header
 - Modify: `public/style.css`
 
 **Interfaces:**
-- Consumes: `GET /api/campaigns`（含 `cost`, `remaining`, `planned_count`, `budget`）、`PUT /api/campaigns/:id`
-- Produces: 總覽頁活動表格顯示預算資訊；可開 dialog 新增／編輯活動
+- Consumes: `GET /api/campaigns`（含 `cost`, `remaining`, `planned_count`, `budget`, `start_date`, `end_date`）、`PUT /api/campaigns/:id`
+- Produces: 總覽頁活動表格顯示起迄時間與預算資訊；可開 dialog 新增／編輯活動
 
 - [ ] **Step 1: 更新 `public/index.html` — 活動表格**
 
@@ -1112,11 +1141,11 @@ git commit -m "feat: staff management tab and Windows user auto-detect in header
 <table class="data-table">
   <thead>
     <tr>
-      <th>活動名稱</th><th>預計張數</th><th>已發張數</th>
+      <th>活動名稱</th><th>起迄時間</th><th>預計張數</th><th>已發張數</th>
       <th>預算</th><th>已發成本</th><th>剩餘預算</th><th>操作</th>
     </tr>
   </thead>
-  <tbody id="campaign-stats"><tr><td colspan="7" class="empty">尚無活動</td></tr></tbody>
+  <tbody id="campaign-stats"><tr><td colspan="8" class="empty">尚無活動</td></tr></tbody>
 </table>
 ```
 
@@ -1129,6 +1158,8 @@ git commit -m "feat: staff management tab and Windows user auto-detect in header
     <h2 id="campaign-dialog-title">新增活動</h2>
     <input type="hidden" id="campaign-id">
     <label>活動名稱 <input type="text" id="campaign-name" required placeholder="例：週年慶抽獎"></label>
+    <label>活動開始日期 <input type="date" id="campaign-start"></label>
+    <label>活動結束日期 <input type="date" id="campaign-end"></label>
     <label>預計發送張數 <input type="number" id="campaign-planned" min="0" value="0"></label>
     <label>預算金額（元）<input type="number" id="campaign-budget" min="0" step="100" value="0"></label>
     <div class="dialog-actions">
@@ -1198,8 +1229,12 @@ const fmt = (n) => n == null ? '–' : `$${Number(n).toLocaleString()}`;
 body.innerHTML = campaigns.length
   ? campaigns.map((c) => {
       const over = c.remaining != null && c.remaining < 0;
+      const dateRange = (c.start_date && c.end_date)
+        ? `${c.start_date} ~ ${c.end_date}`
+        : (c.start_date || c.end_date || '–');
       return `<tr class="${over ? 'over-budget' : ''}">
         <td>${escapeHtml(c.name)}</td>
+        <td style="white-space:nowrap">${escapeHtml(dateRange)}</td>
         <td>${c.planned_count || '–'}</td>
         <td>${c.redeemed_count}</td>
         <td>${c.budget ? fmt(c.budget) : '–'}</td>
@@ -1208,7 +1243,7 @@ body.innerHTML = campaigns.length
         <td><button class="btn btn-small" data-action="edit-campaign" data-id="${c.id}">編輯</button></td>
       </tr>`;
     }).join('')
-  : '<tr><td colspan="7" class="empty">尚無活動</td></tr>';
+  : '<tr><td colspan="8" class="empty">尚無活動</td></tr>';
 ```
 
 在 `loadStats` 後加入活動對話框邏輯：
@@ -1233,6 +1268,8 @@ $('#campaign-stats').addEventListener('click', async (e) => {
   $('#campaign-dialog-title').textContent = '編輯活動';
   $('#campaign-id').value = c.id;
   $('#campaign-name').value = c.name;
+  $('#campaign-start').value = c.start_date || '';
+  $('#campaign-end').value = c.end_date || '';
   $('#campaign-planned').value = c.planned_count || 0;
   $('#campaign-budget').value = c.budget || 0;
   $('#campaign-dialog').showModal();
@@ -1243,6 +1280,8 @@ $('#campaign-form').addEventListener('submit', async (e) => {
   const id = $('#campaign-id').value;
   const body = {
     name: $('#campaign-name').value,
+    start_date: $('#campaign-start').value,
+    end_date: $('#campaign-end').value,
     planned_count: Number($('#campaign-planned').value) || 0,
     budget: Number($('#campaign-budget').value) || 0,
   };
@@ -1269,9 +1308,9 @@ npm start
 ```
 
 開啟 `http://localhost:3000`，確認：
-- 總覽頁活動表格顯示：預計張數、已發張數、預算、已發成本、剩餘預算
-- 新增活動可填預算與預計張數
-- 編輯活動可修改上述欄位
+- 總覽頁活動表格顯示：起迄時間、預計張數、已發張數、預算、已發成本、剩餘預算
+- 新增活動可填起迄日期、預算與預計張數
+- 編輯活動可修改上述欄位，日期選擇器正確帶入既有資料
 - 超出預算的活動列顯示紅色
 
 - [ ] **Step 5: Commit**
