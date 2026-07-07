@@ -5,9 +5,9 @@ const path = require('path');
 const { Router } = require('express');
 const db = require('./db');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-const DB_PATH = path.join(DATA_DIR, 'giftcodes.db');
-const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
+const DATA_DIR = path.dirname(db.name); // 從 db 取得實際 DATA_DIR，保持一致
+const DB_PATH = db.name;
+const STARTUP_CONFIG_FILE = path.join(__dirname, '..', 'startup-config.json');
 const SETTING_KEY = 'backup_dir';
 const MAX_BACKUPS = 30;
 
@@ -25,10 +25,13 @@ function setBackupDir(dir) {
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(SETTING_KEY, trimmed);
-  // 同步寫入 JSON 檔，讓 db.js 在開啟 DB 前能讀取（避免循環依賴）
+  // 同步寫入 startup-config.json（db.js 開 DB 前讀取，避免循環依賴）
   try {
-    fs.writeFileSync(BACKUP_CONFIG_FILE, JSON.stringify({ backup_dir: trimmed }), 'utf8');
-  } catch { /* 非致命，忽略 */ }
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(STARTUP_CONFIG_FILE, 'utf8')); } catch { /* ok */ }
+    cfg.backup_dir = trimmed;
+    fs.writeFileSync(STARTUP_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+  } catch { /* 非致命 */ }
   return trimmed;
 }
 
@@ -121,16 +124,18 @@ router.post('/backup', (req, res) => {
   }
 });
 
-// 伺服器啟動時呼叫：把 DB 內的 backup_dir 同步寫入 JSON 檔
-// 確保下次本機無 DB 時 db.js 能在開 DB 前讀到備份路徑
+// 伺服器啟動時呼叫：把 DB 內的 backup_dir 同步寫入 startup-config.json
+// 確保下次啟動（可能無 DB）能從 startup-config.json 讀到備份路徑
 function syncBackupConfigFile() {
   try {
-    if (fs.existsSync(BACKUP_CONFIG_FILE)) return; // 已存在就不蓋
     const dir = getBackupDir();
-    if (dir) {
-      fs.writeFileSync(BACKUP_CONFIG_FILE, JSON.stringify({ backup_dir: dir }), 'utf8');
-      console.log(`[backup] backup-config.json 已建立（${dir}）`);
-    }
+    if (!dir) return;
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(STARTUP_CONFIG_FILE, 'utf8')); } catch { /* ok */ }
+    if (cfg.backup_dir === dir) return; // 已同步，不需重寫
+    cfg.backup_dir = dir;
+    fs.writeFileSync(STARTUP_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+    console.log(`[backup] startup-config.json backup_dir 已同步（${dir}）`);
   } catch { /* 非致命 */ }
 }
 

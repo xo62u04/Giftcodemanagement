@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 const db = require('./db');
@@ -16,6 +17,31 @@ app.use(express.json());
 app.use('/api', staffRouter);
 app.use('/api', backup.router);
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// ---- 系統設定（DB 路徑）----
+const STARTUP_CONFIG_FILE = path.join(__dirname, '..', 'startup-config.json');
+
+function readStartupCfg() {
+  try {
+    if (fs.existsSync(STARTUP_CONFIG_FILE)) return JSON.parse(fs.readFileSync(STARTUP_CONFIG_FILE, 'utf8'));
+  } catch { /* ignore */ }
+  return {};
+}
+
+app.get('/api/db-config', (req, res) => {
+  const cfg = readStartupCfg();
+  res.json({
+    data_dir: cfg.data_dir || '',
+    current_data_dir: path.dirname(db.name),
+  });
+});
+
+app.put('/api/db-config', (req, res) => {
+  const cfg = readStartupCfg();
+  cfg.data_dir = String(req.body.data_dir || '').trim();
+  fs.writeFileSync(STARTUP_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+  res.json({ ok: true, restart_required: true, data_dir: cfg.data_dir });
+});
 
 const nowIso = () => new Date().toISOString();
 

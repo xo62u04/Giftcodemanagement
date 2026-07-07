@@ -4,25 +4,34 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+// startup-config.json（project root）是路徑設定的唯一來源，優先於環境變數
+const STARTUP_CONFIG_FILE = path.join(__dirname, '..', 'startup-config.json');
+
+function readStartupCfg() {
+  try {
+    if (fs.existsSync(STARTUP_CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(STARTUP_CONFIG_FILE, 'utf8'));
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
+const _startupCfg = readStartupCfg();
+const DATA_DIR = (_startupCfg.data_dir || '').trim()
+  || process.env.DATA_DIR
+  || path.join(__dirname, '..', 'data');
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DB_FILE = path.join(DATA_DIR, 'giftcodes.db');
-const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
 
 // 本機無 DB 時，嘗試從 NAS 備份還原
-// 備份路徑來源優先順序：backup-config.json → BACKUP_DIR 環境變數
+// 備份路徑來源：startup-config.json → BACKUP_DIR 環境變數
 if (!fs.existsSync(DB_FILE)) {
-  let backupDir = '';
-  try {
-    if (fs.existsSync(BACKUP_CONFIG_FILE)) {
-      const cfg = JSON.parse(fs.readFileSync(BACKUP_CONFIG_FILE, 'utf8'));
-      backupDir = (cfg.backup_dir || '').trim();
-    }
-    if (!backupDir) backupDir = (process.env.BACKUP_DIR || '').trim();
-
-    if (backupDir) {
-      console.log(`[DB] 本機無資料庫，嘗試從備份還原：${backupDir}`);
+  const backupDir = (_startupCfg.backup_dir || '').trim() || (process.env.BACKUP_DIR || '').trim();
+  if (backupDir) {
+    console.log(`[DB] 本機無資料庫，嘗試從備份還原：${backupDir}`);
+    try {
       if (fs.existsSync(backupDir)) {
         const latest = fs.readdirSync(backupDir)
           .filter((n) => /^giftcodes-\d{8}-\d{6}\.db$/i.test(n))
@@ -37,11 +46,11 @@ if (!fs.existsSync(DB_FILE)) {
       } else {
         console.log(`[DB] 備份資料夾無法讀取（${backupDir}），將建立新資料庫`);
       }
-    } else {
-      console.log('[DB] 未設定備份路徑，將建立新資料庫');
+    } catch (err) {
+      console.error(`[DB] 嘗試還原失敗（${err.message}），將建立新資料庫`);
     }
-  } catch (err) {
-    console.error(`[DB] 嘗試還原失敗（${err.message}），將建立新資料庫`);
+  } else {
+    console.log('[DB] 未設定備份路徑，將建立新資料庫');
   }
 }
 

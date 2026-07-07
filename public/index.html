@@ -109,13 +109,19 @@
       </form>
       <div id="sync-result" class="result-box hidden"></div>
 
-      <form class="card-form" style="margin-top: 24px;" id="backup-form">
-        <h2>DB 備份</h2>
+      <form class="card-form" style="margin-top: 24px;" id="db-config-form">
+        <h2>系統設定</h2>
         <p class="hint">
-          設定備份資料夾後可手動備份目前 SQLite DB；系統啟動時也會排程每日 00:00 備份，並保留最近 30 份。
+          <strong>DB 路徑</strong>為所有人共用的 NAS 資料夾（存放 <code>giftcodes.db</code>）。
+          <strong>備份路徑</strong>為另一個 NAS 資料夾，每日 00:00 自動備份並保留最近 30 份。
+          變更 DB 路徑後需<strong>重啟伺服器</strong>才生效。
         </p>
-        <label>備份資料夾路徑
-          <input type="text" id="backup-dir" placeholder="\\172.22.91.100\share\gift-backup">
+        <label>DB 路徑（所有人共用的 NAS 資料夾）
+          <input type="text" id="db-data-dir" placeholder="\\172.22.91.100\數位增長部\數位規劃處\【電子禮券後台】E-gift\DB">
+        </label>
+        <p class="hint" id="db-config-info">讀取中...</p>
+        <label style="margin-top:12px;">備份資料夾路徑
+          <input type="text" id="backup-dir" placeholder="\\172.22.91.100\數位增長部\數位規劃處\【電子禮券後台】E-gift\DB-backup">
         </label>
         <p class="hint" id="backup-info">讀取備份狀態中...</p>
         <ul id="backup-list" class="simple-list"></ul>

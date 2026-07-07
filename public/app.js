@@ -70,7 +70,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'codes') { loadFilterOptions(); loadCodes(); }
     if (btn.dataset.tab === 'batches') loadBatches();
     if (btn.dataset.tab === 'bulk') loadCampaignList();
-    if (btn.dataset.tab === 'upload') { loadSyncStatus(); loadBackupStatus(); }
+    if (btn.dataset.tab === 'upload') { loadSyncStatus(); loadBackupStatus(); loadDbConfig(); }
     if (btn.dataset.tab === 'staff') loadStaff();
   });
 });
@@ -464,6 +464,22 @@ function renderBackupStatus(s) {
     : '';
 }
 
+async function loadDbConfig() {
+  try {
+    const cfg = await api('/api/db-config');
+    const input = $('#db-data-dir');
+    if (document.activeElement !== input) input.value = cfg.data_dir || '';
+    const info = $('#db-config-info');
+    if (cfg.current_data_dir) {
+      info.textContent = `目前使用：${cfg.current_data_dir}${cfg.data_dir && cfg.data_dir !== cfg.current_data_dir ? '（重啟後將切換至新路徑）' : ''}`;
+    } else {
+      info.textContent = '';
+    }
+  } catch (err) {
+    $('#db-config-info').textContent = err.message;
+  }
+}
+
 async function loadBackupStatus() {
   try {
     renderBackupStatus(await api('/api/backup/config'));
@@ -472,17 +488,31 @@ async function loadBackupStatus() {
   }
 }
 
-$('#backup-form').addEventListener('submit', async (e) => {
+$('#db-config-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    const status = await api('/api/backup/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ backup_dir: $('#backup-dir').value }),
-    });
-    $('#backup-dir').blur();
-    renderBackupStatus(status);
-    toast('已儲存備份設定');
+    const newDataDir = $('#db-data-dir').value.trim();
+    const newBackupDir = $('#backup-dir').value.trim();
+    // 同時儲存 DB 路徑 + 備份路徑
+    const [dbRes, backupRes] = await Promise.all([
+      api('/api/db-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data_dir: newDataDir }),
+      }),
+      api('/api/backup/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup_dir: newBackupDir }),
+      }),
+    ]);
+    renderBackupStatus(backupRes);
+    await loadDbConfig();
+    if (dbRes.restart_required) {
+      toast('已儲存設定，請重啟伺服器讓 DB 路徑生效');
+    } else {
+      toast('已儲存設定');
+    }
   } catch (err) {
     toast(err.message, true);
   }
