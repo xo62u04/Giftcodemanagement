@@ -399,6 +399,7 @@ if (require.main === module) {
     }, intervalMin * 60 * 1000).unref();
   }
 
+  backup.syncBackupConfigFile(); // 確保 backup-config.json 存在，讓下次啟動能自動還原
   backup.scheduleDailyBackup();
 }
 

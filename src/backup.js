@@ -121,4 +121,17 @@ router.post('/backup', (req, res) => {
   }
 });
 
-module.exports = { router, scheduleDailyBackup, tryBackup, getBackupStatus, setBackupDir };
+// 伺服器啟動時呼叫：把 DB 內的 backup_dir 同步寫入 JSON 檔
+// 確保下次本機無 DB 時 db.js 能在開 DB 前讀到備份路徑
+function syncBackupConfigFile() {
+  try {
+    if (fs.existsSync(BACKUP_CONFIG_FILE)) return; // 已存在就不蓋
+    const dir = getBackupDir();
+    if (dir) {
+      fs.writeFileSync(BACKUP_CONFIG_FILE, JSON.stringify({ backup_dir: dir }), 'utf8');
+      console.log(`[backup] backup-config.json 已建立（${dir}）`);
+    }
+  } catch { /* 非致命 */ }
+}
+
+module.exports = { router, scheduleDailyBackup, tryBackup, getBackupStatus, setBackupDir, syncBackupConfigFile };

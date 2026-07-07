@@ -10,22 +10,35 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, 'giftcodes.db');
 const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
 
-// 本機無 DB 時，嘗試從 NAS 備份還原（路徑記錄在 backup-config.json）
-if (!fs.existsSync(DB_FILE) && fs.existsSync(BACKUP_CONFIG_FILE)) {
+// 本機無 DB 時，嘗試從 NAS 備份還原
+// 備份路徑來源優先順序：backup-config.json → BACKUP_DIR 環境變數
+if (!fs.existsSync(DB_FILE)) {
+  let backupDir = '';
   try {
-    const cfg = JSON.parse(fs.readFileSync(BACKUP_CONFIG_FILE, 'utf8'));
-    const backupDir = (cfg.backup_dir || '').trim();
-    if (backupDir && fs.existsSync(backupDir)) {
-      const latest = fs.readdirSync(backupDir)
-        .filter((n) => /^giftcodes-\d{8}-\d{6}\.db$/i.test(n))
-        .sort()
-        .reverse()[0];
-      if (latest) {
-        fs.copyFileSync(path.join(backupDir, latest), DB_FILE);
-        console.log(`[DB] 本機無資料庫，已從備份還原：${latest}`);
+    if (fs.existsSync(BACKUP_CONFIG_FILE)) {
+      const cfg = JSON.parse(fs.readFileSync(BACKUP_CONFIG_FILE, 'utf8'));
+      backupDir = (cfg.backup_dir || '').trim();
+    }
+    if (!backupDir) backupDir = (process.env.BACKUP_DIR || '').trim();
+
+    if (backupDir) {
+      console.log(`[DB] 本機無資料庫，嘗試從備份還原：${backupDir}`);
+      if (fs.existsSync(backupDir)) {
+        const latest = fs.readdirSync(backupDir)
+          .filter((n) => /^giftcodes-\d{8}-\d{6}\.db$/i.test(n))
+          .sort()
+          .reverse()[0];
+        if (latest) {
+          fs.copyFileSync(path.join(backupDir, latest), DB_FILE);
+          console.log(`[DB] 已從備份還原：${latest}`);
+        } else {
+          console.log('[DB] 備份資料夾內無備份檔案，將建立新資料庫');
+        }
       } else {
-        console.log('[DB] 本機無資料庫，備份資料夾內亦無備份，將建立新資料庫');
+        console.log(`[DB] 備份資料夾無法讀取（${backupDir}），將建立新資料庫`);
       }
+    } else {
+      console.log('[DB] 未設定備份路徑，將建立新資料庫');
     }
   } catch (err) {
     console.error(`[DB] 嘗試還原失敗（${err.message}），將建立新資料庫`);
