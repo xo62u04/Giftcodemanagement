@@ -4,14 +4,17 @@ cd /d "%~dp0"
 
 REM ============================================================
 REM  電子禮券管理後台 啟動腳本（雙擊即可啟動）
-REM  如需 NAS 同步，把下面的 SYNC_DIR 改成你們的 NAS 路徑，例如：
+REM  如需調整預設路徑，把下面的 SYNC_DIR / BACKUP_DIR 改成你們的 NAS 路徑，例如：
 REM    set "SYNC_DIR=\\NAS01\giftcodes"
+REM    set "BACKUP_DIR=\\NAS01\giftcodes-db"
 REM  或已對應的網路磁碟機：
 REM    set "SYNC_DIR=Z:\giftcodes"
+REM    set "BACKUP_DIR=Z:\giftcodes-db"
 REM ============================================================
 
 set "PORT=3000"
-set "SYNC_DIR=\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts"
+set "SYNC_DIR=\\172.22.91.100\數位增長部\數位規劃處\【電子禮券後台】E-gift\gifts"
+set "BACKUP_DIR=\\172.22.91.100\數位增長部\數位規劃處\【電子禮券後台】E-gift\DB"
 set "SYNC_INTERVAL_MINUTES=30"
 
 where node >nul 2>nul
