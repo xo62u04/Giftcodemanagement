@@ -3,11 +3,11 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 REM ============================================================
-REM  電子禮券管理後台 啟動腳本（雙擊即可啟動）
-REM  如需調整預設路徑，把下面的 SYNC_DIR / BACKUP_DIR 改成你們的 NAS 路徑，例如：
+REM  E-gift admin startup script.
+REM  Edit SYNC_DIR / BACKUP_DIR below if the default NAS paths change.
 REM    set "SYNC_DIR=\\NAS01\giftcodes"
 REM    set "BACKUP_DIR=\\NAS01\giftcodes-db"
-REM  或已對應的網路磁碟機：
+REM  Or use mapped drives:
 REM    set "SYNC_DIR=Z:\giftcodes"
 REM    set "BACKUP_DIR=Z:\giftcodes-db"
 REM ============================================================
@@ -19,24 +19,34 @@ set "SYNC_INTERVAL_MINUTES=30"
 
 where node >nul 2>nul
 if errorlevel 1 (
-    echo [錯誤] 找不到 Node.js，請先到 https://nodejs.org 安裝 LTS 版（64 位元）。
+    echo [ERROR] Node.js was not found. Install the LTS version from https://nodejs.org.
     pause
     exit /b 1
 )
 
 if not exist node_modules (
-    echo 第一次啟動，正在安裝相依套件...
+    echo First run: installing dependencies...
     call npm install
     if errorlevel 1 (
-        echo [錯誤] npm install 失敗，請確認網路連線後重試。
+        echo [ERROR] npm install failed. Check the network connection and try again.
         pause
         exit /b 1
     )
 )
 
+set "PORT_PID="
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%PORT% .*LISTENING"') do set "PORT_PID=%%P"
+if defined PORT_PID (
+    echo.
+    echo [INFO] Server is already running on port %PORT% ^(PID %PORT_PID%^).
+    echo Open http://localhost:%PORT%
+    pause
+    exit /b 0
+)
+
 echo.
-echo 電子禮券管理後台啟動中... 瀏覽器開啟 http://localhost:%PORT%
-echo 關閉此視窗即停止服務。
+echo Starting E-gift admin... Open http://localhost:%PORT%
+echo Close this window to stop the service.
 echo.
 node src\server.js
 pause
