@@ -11,6 +11,7 @@
 - **批次兌換**：貼上多個禮券碼，一次標記到同一個活動
 - **總覽**：未兌換／已兌換張數、各活動使用狀況
 - **匯出 CSV**：套用目前篩選條件匯出（含 BOM，Excel 可直接開啟）
+- **NAS 同步**：掃描 NAS 掛載資料夾內的 CSV 自動匯入，可手動觸發或定時自動同步
 
 ## CSV 格式
 
@@ -37,6 +38,37 @@ npm start          # http://localhost:3000
 |---|---|---|
 | `PORT` | `3000` | 伺服器埠號 |
 | `DATA_DIR` | `./data` | SQLite 資料庫存放目錄 |
+| `SYNC_DIR` | （未設定） | NAS 同步資料夾（見下方） |
+| `SYNC_INTERVAL_MINUTES` | （未設定） | 自動同步間隔（分鐘），未設定則只能手動同步 |
+
+## NAS 同步
+
+公司 NAS 上的禮券 CSV 可以自動匯入。先把 NAS 掛載成本機路徑（SMB/NFS），
+再以 `SYNC_DIR` 指定該路徑：
+
+```bash
+# 例：掛載 NAS 共享資料夾（依實際環境調整）
+sudo mount -t cifs //nas.internal/giftcodes /mnt/nas-giftcodes -o ro,username=...
+
+# 啟動時指定同步資料夾，並每 30 分鐘自動同步
+SYNC_DIR=/mnt/nas-giftcodes SYNC_INTERVAL_MINUTES=30 npm start
+```
+
+同步行為：
+
+- 遞迴掃描資料夾（含子資料夾）內所有 `.csv`
+- 每個檔案記錄 mtime 與大小，未變動的檔案下次同步直接跳過
+- 檔案更新後（例如 NAS 上的檔案被追加新碼）重新解析，只補進新的禮券碼
+- 解析失敗的檔案回報錯誤，不影響其他檔案
+- 也可以在後台「上傳 CSV」分頁按「立即同步」，或 `POST /api/sync` 觸發
+
+## 測試資料
+
+```bash
+npm run seed       # 塞入 450 筆禮券（3 個批次、4 個活動、170 筆已兌換）
+```
+
+重複執行不會產生重複資料（同名批次與已兌換的碼會跳過）。
 
 ## 開發
 
@@ -65,3 +97,5 @@ npm test           # API 測試（node:test，自建暫存資料庫）
 | `GET` | `/api/campaigns` | 活動列表（含已兌換張數） |
 | `POST` | `/api/campaigns` | 新增活動 |
 | `GET` | `/api/export.csv` | 匯出（支援與列表相同的篩選參數） |
+| `GET` | `/api/sync/status` | NAS 同步狀態與已追蹤檔案 |
+| `POST` | `/api/sync` | 立即執行 NAS 同步 |

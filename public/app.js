@@ -46,6 +46,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'codes') { loadFilterOptions(); loadCodes(); }
     if (btn.dataset.tab === 'batches') loadBatches();
     if (btn.dataset.tab === 'bulk') loadCampaignList();
+    if (btn.dataset.tab === 'upload') loadSyncStatus();
   });
 });
 
@@ -264,6 +265,56 @@ $('#bulk-form').addEventListener('submit', async (e) => {
     box.classList.remove('hidden');
     box.classList.add('error');
     box.textContent = err.message;
+  }
+});
+
+// ---- NAS 同步 ----
+async function loadSyncStatus() {
+  const info = $('#sync-info');
+  try {
+    const s = await api('/api/sync/status');
+    if (!s.configured) {
+      info.textContent = '尚未設定同步資料夾。請以環境變數 SYNC_DIR 指定 NAS 掛載路徑（可再用 SYNC_INTERVAL_MINUTES 設定自動同步頻率）。';
+      $('#btn-sync').disabled = true;
+      return;
+    }
+    $('#btn-sync').disabled = false;
+    const lines = [`同步資料夾：${s.sync_dir}${s.dir_exists ? '' : '（目前無法讀取，請確認 NAS 已掛載）'}`];
+    lines.push(s.last_synced_at ? `上次同步：${formatTime(s.last_synced_at)}，已追蹤 ${s.files.length} 個檔案` : '尚未同步過');
+    info.textContent = lines.join('　｜　');
+  } catch (err) {
+    info.textContent = err.message;
+  }
+}
+
+$('#btn-sync').addEventListener('click', async () => {
+  const box = $('#sync-result');
+  const btn = $('#btn-sync');
+  btn.disabled = true;
+  btn.textContent = '同步中…';
+  try {
+    const r = await api('/api/sync', { method: 'POST' });
+    box.classList.remove('hidden', 'error');
+    let html = `掃描 ${r.scanned} 個 CSV：新匯入 <strong>${r.imported_files.length}</strong> 個檔案`
+      + `（新增 <strong>${r.new_codes}</strong> 筆禮券、重複略過 ${r.duplicate_codes} 筆），`
+      + `未變動跳過 ${r.skipped_files} 個`;
+    if (r.imported_files.length) {
+      html += `<ul>${r.imported_files.map((f) =>
+        `<li>${escapeHtml(f.path)}：新增 ${f.imported} 筆${f.duplicates ? `、重複 ${f.duplicates} 筆` : ''}</li>`).join('')}</ul>`;
+    }
+    if (r.errors.length) {
+      html += `<ul>${r.errors.map((e) => `<li>⚠️ ${escapeHtml(e)}</li>`).join('')}</ul>`;
+    }
+    box.innerHTML = html;
+    toast(`同步完成，新增 ${r.new_codes} 筆禮券`);
+    loadSyncStatus();
+  } catch (err) {
+    box.classList.remove('hidden');
+    box.classList.add('error');
+    box.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '立即同步';
   }
 });
 

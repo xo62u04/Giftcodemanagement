@@ -12,6 +12,11 @@ npm install
 DATA_DIR=$(mktemp -d) PORT=3456 node src/server.js   # DATA_DIR 換成暫存目錄可避免污染 data/
 ```
 
+需要資料時：`DATA_DIR=<同一個目錄> node scripts/seed.js`（450 筆、170 筆已兌換）。
+驗證 NAS 同步：建一個假資料夾放 CSV，啟動時加 `SYNC_DIR=<該資料夾>`，
+UI 在「上傳 CSV」分頁的「NAS 同步」卡片；追加檔案內容後記得 `fs.utimesSync`
+把 mtime 往後調，否則 mtime 沒變會被跳過。
+
 首頁即後台介面：`http://localhost:3456`，API 掛在 `/api/*`。
 
 ## 用瀏覽器驅動（本環境已預裝 Chromium）

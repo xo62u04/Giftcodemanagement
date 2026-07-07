@@ -5,6 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv } = require('./csv');
+const { runSync, getSyncStatus } = require('./sync');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -261,6 +262,19 @@ app.get('/api/export.csv', (req, res) => {
   res.send('\uFEFF' + lines.join('\n') + '\n');
 });
 
+// ---- NAS 同步 ----
+app.get('/api/sync/status', (req, res) => {
+  res.json(getSyncStatus());
+});
+
+app.post('/api/sync', (req, res) => {
+  try {
+    res.json(runSync());
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   res.status(500).json({ error: err.message || '伺服器發生錯誤' });
@@ -270,7 +284,26 @@ const PORT = process.env.PORT || 3000;
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`電子禮券管理後台已啟動：http://localhost:${PORT}`);
+    if (process.env.SYNC_DIR) {
+      console.log(`NAS 同步資料夾：${process.env.SYNC_DIR}`);
+    }
   });
+
+  // 設定 SYNC_INTERVAL_MINUTES 後，定時自動同步 NAS 上的 CSV
+  const intervalMin = Number(process.env.SYNC_INTERVAL_MINUTES);
+  if (intervalMin > 0) {
+    console.log(`每 ${intervalMin} 分鐘自動同步一次`);
+    setInterval(() => {
+      try {
+        const s = runSync();
+        if (s.imported_files.length || s.errors.length) {
+          console.log(`[自動同步] 新增 ${s.new_codes} 筆禮券，錯誤 ${s.errors.length} 件`);
+        }
+      } catch (err) {
+        console.error(`[自動同步] 失敗：${err.message}`);
+      }
+    }, intervalMin * 60 * 1000).unref();
+  }
 }
 
 module.exports = app;
