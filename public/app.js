@@ -88,17 +88,21 @@ async function loadStats() {
     body.innerHTML = campaigns.length
       ? campaigns.map((c) => {
         const over = c.remaining != null && c.remaining < 0;
+        const dateRange = c.start_date && c.end_date
+          ? `${c.start_date} ~ ${c.end_date}`
+          : (c.start_date || c.end_date || '–');
         return `<tr class="${over ? 'over-budget' : ''}">
           <td>${escapeHtml(c.name)}</td>
-          <td>${c.planned_count || '-'}</td>
+          <td style="white-space:nowrap;font-size:0.85em">${escapeHtml(dateRange)}</td>
+          <td>${c.planned_count || '–'}</td>
           <td>${c.redeemed_count}</td>
-          <td>${c.budget ? fmt(c.budget) : '-'}</td>
+          <td>${c.budget ? fmt(c.budget) : '–'}</td>
           <td>${fmt(c.cost || 0)}</td>
-          <td>${c.budget ? fmt(c.remaining) : '-'}</td>
+          <td>${c.budget ? fmt(c.remaining) : '–'}</td>
           <td><button class="btn btn-small" data-action="edit-campaign" data-id="${c.id}">編輯</button></td>
         </tr>`;
       }).join('')
-      : '<tr><td colspan="7" class="empty">尚無活動</td></tr>';
+      : '<tr><td colspan="8" class="empty">尚無活動</td></tr>';
   } catch (err) {
     toast(err.message, true);
   }
@@ -126,6 +130,8 @@ $('#campaign-stats').addEventListener('click', async (e) => {
     $('#campaign-dialog-title').textContent = '編輯活動';
     $('#campaign-id').value = campaign.id;
     $('#campaign-name').value = campaign.name;
+    $('#campaign-start').value = campaign.start_date || '';
+    $('#campaign-end').value = campaign.end_date || '';
     $('#campaign-planned').value = campaign.planned_count || 0;
     $('#campaign-budget').value = campaign.budget || 0;
     $('#campaign-dialog').showModal();
@@ -139,6 +145,8 @@ $('#campaign-form').addEventListener('submit', async (e) => {
   const id = $('#campaign-id').value;
   const body = {
     name: $('#campaign-name').value,
+    start_date: $('#campaign-start').value,
+    end_date: $('#campaign-end').value,
     planned_count: Number($('#campaign-planned').value) || 0,
     budget: Number($('#campaign-budget').value) || 0,
   };

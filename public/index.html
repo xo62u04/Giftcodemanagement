@@ -36,11 +36,11 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>活動名稱</th><th>預計張數</th><th>已兌換張數</th>
+            <th>活動名稱</th><th>起迄時間</th><th>預計張數</th><th>已兌換張數</th>
             <th>預算</th><th>已兌換成本</th><th>剩餘預算</th><th>操作</th>
           </tr>
         </thead>
-        <tbody id="campaign-stats"><tr><td colspan="7" class="empty">尚無活動</td></tr></tbody>
+        <tbody id="campaign-stats"><tr><td colspan="8" class="empty">尚無活動</td></tr></tbody>
       </table>
     </section>
 
@@ -185,6 +185,8 @@
       <h2 id="campaign-dialog-title">新增活動</h2>
       <input type="hidden" id="campaign-id">
       <label>活動名稱 <input type="text" id="campaign-name" required placeholder="例如：週年慶活動"></label>
+      <label>活動開始日期 <input type="date" id="campaign-start"></label>
+      <label>活動結束日期 <input type="date" id="campaign-end"></label>
       <label>預計兌換張數 <input type="number" id="campaign-planned" min="0" value="0"></label>
       <label>預算 <input type="number" id="campaign-budget" min="0" step="100" value="0"></label>
       <div class="dialog-actions">

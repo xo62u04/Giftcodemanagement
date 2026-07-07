@@ -71,5 +71,11 @@ if (!campaignCols.includes('planned_count')) {
 if (!campaignCols.includes('budget')) {
   db.exec('ALTER TABLE campaigns ADD COLUMN budget REAL NOT NULL DEFAULT 0');
 }
+if (!campaignCols.includes('start_date')) {
+  db.exec("ALTER TABLE campaigns ADD COLUMN start_date TEXT NOT NULL DEFAULT ''");
+}
+if (!campaignCols.includes('end_date')) {
+  db.exec("ALTER TABLE campaigns ADD COLUMN end_date TEXT NOT NULL DEFAULT ''");
+}
 
 module.exports = db;

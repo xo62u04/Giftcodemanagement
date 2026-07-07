@@ -159,9 +159,15 @@ app.post('/api/campaigns', (req, res) => {
   if (!name) return res.status(400).json({ error: '活動名稱不可為空' });
   try {
     const result = db.prepare(`
-      INSERT INTO campaigns (name, planned_count, budget)
-      VALUES (?, ?, ?)
-    `).run(name, Math.max(0, Number(req.body.planned_count) || 0), Math.max(0, Number(req.body.budget) || 0));
+      INSERT INTO campaigns (name, planned_count, budget, start_date, end_date)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      name,
+      Math.max(0, Number(req.body.planned_count) || 0),
+      Math.max(0, Number(req.body.budget) || 0),
+      String(req.body.start_date || '').trim(),
+      String(req.body.end_date || '').trim()
+    );
     res.status(201).json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(result.lastInsertRowid));
   } catch (err) {
     if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Campaign already exists' });
@@ -180,12 +186,14 @@ app.put('/api/campaigns/:id', (req, res) => {
   try {
     db.prepare(`
       UPDATE campaigns
-      SET name = ?, planned_count = ?, budget = ?
+      SET name = ?, planned_count = ?, budget = ?, start_date = ?, end_date = ?
       WHERE id = ?
     `).run(
       name,
       Math.max(0, Number(req.body.planned_count) || 0),
       Math.max(0, Number(req.body.budget) || 0),
+      String(req.body.start_date || '').trim(),
+      String(req.body.end_date || '').trim(),
       req.params.id
     );
     res.json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id));
