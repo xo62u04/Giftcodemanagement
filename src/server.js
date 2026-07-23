@@ -92,7 +92,16 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
     return res.status(400).json({ error: `CSV 解析失敗：${err.message}` });
   }
   if (parsed.rows.length === 0) {
-    return res.status(400).json({ error: '檔案中找不到任何禮券碼', details: parsed.errors });
+    // 整份檔案只剩範本範例列 = 使用者下載範本後直接上傳，沒填東西
+    const templateOnly =
+      parsed.errors.length > 0 &&
+      parsed.errors.every((e) => e.includes('範本範例列'));
+    return res.status(400).json({
+      error: templateOnly
+        ? '這是尚未填寫的 CSV 範本：請刪除範例列、填入實際禮券碼後再上傳'
+        : '檔案中找不到任何禮券碼',
+      details: parsed.errors,
+    });
   }
 
   const note = String(req.body.note || '').trim();

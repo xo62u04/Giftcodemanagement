@@ -222,3 +222,11 @@ test('GET /api/template.csv 回傳可直接被解析器吃下的範本', async (
     2
   );
 });
+
+test('原封不動上傳範本會提示要先填寫，而不是說找不到禮券碼', async () => {
+  const text = await (await fetch(`${base}/api/template.csv`)).text();
+  const { status, body } = await uploadCsv(text, '禮券上傳範本.csv');
+  assert.strictEqual(status, 400);
+  assert.match(body.error, /範本/, '錯誤訊息應點出這是未填寫的範本');
+  assert.strictEqual(body.details.filter((d) => d.includes('範本範例列')).length, 2);
+});
