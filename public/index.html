@@ -12,10 +12,10 @@
     <nav>
       <button class="tab-btn active" data-tab="overview">總覽</button>
       <button class="tab-btn" data-tab="codes">禮券管理</button>
-      <button class="tab-btn" data-tab="upload">上傳 CSV</button>
       <button class="tab-btn" data-tab="bulk">批次兌換</button>
       <button class="tab-btn" data-tab="batches">上傳紀錄</button>
       <button class="tab-btn" data-tab="staff">同仁管理</button>
+      <button class="tab-btn" data-tab="settings">系統設定</button>
     </nav>
     <div id="current-user-badge" class="user-badge">讀取使用者中...</div>
   </header>
@@ -46,6 +46,24 @@
 
     <!-- 禮券管理 -->
     <section id="tab-codes" class="tab">
+      <form id="upload-form" class="card-form">
+        <h2>上傳禮券 CSV</h2>
+        <p class="hint">
+          支援含標頭的 CSV（禮券碼欄位可命名為 code / 禮券碼 / 序號 / 兌換碼 等，
+          可選欄位：禮品名稱、面額、到期日）。若無可辨識的標頭，會以第一欄作為禮券碼。
+          與資料庫重複的禮券碼會自動略過。<br>
+          不知道格式怎麼填？下載範本照著填即可；範本內的兩列範例資料上傳時會自動略過。
+          另存檔名建議用實際禮品名稱（NAS 同步會以檔名作為禮品名稱）。
+        </p>
+        <label>CSV 檔案 <input type="file" id="upload-file" accept=".csv,text/csv" required></label>
+        <label>禮券名稱（選填） <input type="text" id="upload-gift-name" placeholder="例：全家便利商店500元禮券"></label>
+        <label>上傳人（選填） <input type="text" id="upload-by" placeholder="例：王小明"></label>
+        <label>批次備註（選填） <input type="text" id="upload-note" placeholder="例：2026 Q3 採購 500 元券"></label>
+        <button type="submit" class="btn">上傳</button>
+        <p><a href="/api/template.csv" class="btn btn-secondary" download>下載 CSV 範本</a></p>
+      </form>
+      <div id="upload-result" class="result-box hidden"></div>
+
       <form id="filter-form" class="filter-bar">
         <input type="search" id="filter-q" placeholder="搜尋禮券碼…">
         <select id="filter-status">
@@ -74,24 +92,9 @@
       </div>
     </section>
 
-    <!-- 上傳 CSV -->
-    <section id="tab-upload" class="tab">
-      <form id="upload-form" class="card-form">
-        <h2>上傳禮券 CSV</h2>
-        <p class="hint">
-          支援含標頭的 CSV（禮券碼欄位可命名為 code / 禮券碼 / 序號 / 兌換碼 等，
-          可選欄位：面額、到期日）。若無可辨識的標頭，會以第一欄作為禮券碼。
-          與資料庫重複的禮券碼會自動略過。
-        </p>
-        <label>CSV 檔案 <input type="file" id="upload-file" accept=".csv,text/csv" required></label>
-        <label>禮券名稱（選填） <input type="text" id="upload-gift-name" placeholder="例：全家便利商店500元禮券"></label>
-        <label>上傳人（選填） <input type="text" id="upload-by" placeholder="例：王小明"></label>
-        <label>批次備註（選填） <input type="text" id="upload-note" placeholder="例：2026 Q3 採購 500 元券"></label>
-        <button type="submit" class="btn">上傳</button>
-      </form>
-      <div id="upload-result" class="result-box hidden"></div>
-
-      <form class="card-form" style="margin-top: 24px;" id="sync-form">
+    <!-- 系統設定 -->
+    <section id="tab-settings" class="tab">
+      <form class="card-form" id="sync-form">
         <h2>NAS 同步</h2>
         <p class="hint">
           填入 NAS 上放禮券 CSV 的資料夾路徑（例：<code>\\172.22.91.100\數位增長部\數位規劃處\Thunder\gifts</code>
@@ -110,7 +113,7 @@
       <div id="sync-result" class="result-box hidden"></div>
 
       <form class="card-form" style="margin-top: 24px;" id="db-config-form">
-        <h2>系統設定</h2>
+        <h2>資料庫與備份</h2>
         <p class="hint">
           <strong>DB 路徑</strong>為所有人共用的 NAS 資料夾（存放 <code>giftcodes.db</code>）。
           <strong>備份路徑</strong>為另一個 NAS 資料夾，每日 00:00 自動備份並保留最近 30 份。

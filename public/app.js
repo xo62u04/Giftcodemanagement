@@ -70,7 +70,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'codes') { loadFilterOptions(); loadCodes(); }
     if (btn.dataset.tab === 'batches') loadBatches();
     if (btn.dataset.tab === 'bulk') loadCampaignList();
-    if (btn.dataset.tab === 'upload') { loadSyncStatus(); loadBackupStatus(); loadDbConfig(); }
+    if (btn.dataset.tab === 'settings') { loadSyncStatus(); loadBackupStatus(); loadDbConfig(); }
     if (btn.dataset.tab === 'staff') loadStaff();
   });
 });
@@ -334,6 +334,9 @@ $('#upload-form').addEventListener('submit', async (e) => {
     }
     box.innerHTML = html;
     $('#upload-form').reset();
+    // 上傳表單與禮券列表同頁，不刷新的話下方列表會停在舊資料
+    loadFilterOptions();
+    loadCodes();
     toast('上傳成功');
   } catch (err) {
     box.classList.remove('hidden');
