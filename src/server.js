@@ -5,7 +5,7 @@ const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 const db = require('./db');
-const { parseGiftcodeCsv } = require('./csv');
+const { parseGiftcodeCsv, TEMPLATE_CSV } = require('./csv');
 const { runSync, getSyncStatus, setSyncDir } = require('./sync');
 const staffRouter = require('./staff');
 const backup = require('./backup');
@@ -376,6 +376,16 @@ app.get('/api/export.csv', (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="giftcodes-export.csv"');
   res.send('\uFEFF' + lines.join('\n') + '\n');
+});
+
+app.get('/api/template.csv', (req, res) => {
+  const filename = encodeURIComponent('禮券上傳範本.csv');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="giftcode-template.csv"; filename*=UTF-8''${filename}`
+  );
+  res.send(String.fromCharCode(0xFEFF) + TEMPLATE_CSV); // UTF-8 BOM，與 export.csv 一致
 });
 
 // ---- NAS 同步 ----

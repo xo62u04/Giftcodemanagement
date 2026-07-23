@@ -198,3 +198,27 @@ test('範本範例列不會被匯入，實際填寫的禮券碼不受影響', as
     2
   );
 });
+
+test('GET /api/template.csv 回傳可直接被解析器吃下的範本', async () => {
+  const res = await fetch(`${base}/api/template.csv`);
+  assert.strictEqual(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/csv/);
+
+  // 檢查原始位元組：UTF-8 BOM 為 EF BB BF，Excel 才不會亂碼。
+  // 注意 fetch 的 res.text() 會吃掉開頭 BOM，故必須看 arrayBuffer。
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.deepStrictEqual([buf[0], buf[1], buf[2]], [0xef, 0xbb, 0xbf], '應以 UTF-8 BOM 開頭');
+
+  const text = buf.toString('utf8');
+  for (const header of ['禮券碼', '禮品名稱', '面額', '到期日']) {
+    assert.ok(text.includes(header), `範本應包含欄位 ${header}`);
+  }
+
+  const { parseGiftcodeCsv } = require('../src/csv');
+  const parsed = parseGiftcodeCsv(buf);
+  assert.deepStrictEqual(parsed.rows, [], '範本本身不應產生任何可匯入的禮券');
+  assert.strictEqual(
+    parsed.errors.filter((e) => e.includes('範本範例列')).length,
+    2
+  );
+});
