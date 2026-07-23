@@ -182,3 +182,19 @@ test('依活動篩選並匯出 CSV', async () => {
   assert.match(csvRes.headers.get('content-type'), /text\/csv/);
   assert.match(csv, /GIFT-001,已兌換,週年慶抽獎,王小明/);
 });
+
+test('範本範例列不會被匯入，實際填寫的禮券碼不受影響', async () => {
+  const { status, body } = await uploadCsv(
+    '禮券碼,禮品名稱,面額,到期日\n' +
+    'ABC12345678,全家便利商店500元禮券,500,2026-12-31\n' +
+    'ABC12345679,全家便利商店500元禮券,500,2026-12-31\n' +
+    'REAL-001,實際禮品,100,2026-12-31\n'
+  );
+  assert.strictEqual(status, 201);
+  assert.strictEqual(body.total, 1);
+  assert.strictEqual(body.imported, 1);
+  assert.strictEqual(
+    body.warnings.filter((w) => w.includes('範本範例列')).length,
+    2
+  );
+});

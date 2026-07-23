@@ -16,6 +16,16 @@ const GIFT_NAME_HEADERS = [
   '禮品名稱', '禮券名稱', '商品名稱', '品名', '禮品', '禮券',
 ];
 
+// 下載用的 CSV 範本。欄位名稱刻意取自上方各 *_HEADERS 清單，
+// 所以範本本身就是這支解析器吃得下的格式。
+const TEMPLATE_SAMPLE_CODES = ['ABC12345678', 'ABC12345679'];
+const TEMPLATE_CSV = [
+  '禮券碼,禮品名稱,面額,到期日',
+  `${TEMPLATE_SAMPLE_CODES[0]},全家便利商店500元禮券,500,2026-12-31`,
+  `${TEMPLATE_SAMPLE_CODES[1]},全家便利商店500元禮券,500,2026-12-31`,
+  '',
+].join('\r\n');
+
 /**
  * 把 CSV buffer 解成字串，處理 Windows 上常見的編碼：
  * - UTF-8（含 BOM）
@@ -94,6 +104,10 @@ function parseGiftcodeCsv(buffer) {
       errors.push(`第 ${i + 1} 列：禮券碼為空，已略過`);
       continue;
     }
+    if (TEMPLATE_SAMPLE_CODES.includes(code)) {
+      errors.push(`第 ${i + 1} 列：範本範例列，已略過`);
+      continue;
+    }
     if (seen.has(code)) {
       errors.push(`第 ${i + 1} 列：禮券碼「${code}」在檔案內重複，已略過`);
       continue;
@@ -113,4 +127,4 @@ function parseGiftcodeCsv(buffer) {
   return { rows, errors, gift_name };
 }
 
-module.exports = { parseGiftcodeCsv };
+module.exports = { parseGiftcodeCsv, TEMPLATE_CSV, TEMPLATE_SAMPLE_CODES };
