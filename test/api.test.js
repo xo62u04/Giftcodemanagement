@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'giftcode-test-'));
+require('./helpers/isolate-db')('giftcode-test-');
 
 const app = require('../src/server');
 const db = require('../src/db');

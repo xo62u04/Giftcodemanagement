@@ -4,8 +4,11 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-// startup-config.json（project root）是路徑設定的唯一來源，優先於環境變數
-const STARTUP_CONFIG_FILE = path.join(__dirname, '..', 'startup-config.json');
+// startup-config.json（project root）是正式啟動時路徑設定的唯一來源，優先於環境變數。
+// 測試可用 STARTUP_CONFIG_FILE 環境變數指向不存在的檔案，繞開正式設定、
+// 讓 DATA_DIR 環境變數生效，避免測試誤寫正式資料庫。
+const STARTUP_CONFIG_FILE = (process.env.STARTUP_CONFIG_FILE || '').trim()
+  || path.join(__dirname, '..', 'startup-config.json');
 
 function readStartupCfg() {
   try {

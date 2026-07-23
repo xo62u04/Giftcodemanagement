@@ -6,8 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gift-schema-'));
-process.env.DATA_DIR = tmpDir;
+const { dataDir: tmpDir } = require('./helpers/isolate-db')('gift-schema-');
 
 const db = require('../src/db');
 
