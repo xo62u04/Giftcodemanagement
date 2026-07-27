@@ -188,6 +188,26 @@
     </form>
   </dialog>
 
+  <!-- 編輯禮券對話框 -->
+  <dialog id="code-dialog">
+    <form id="code-form" method="dialog" class="card-form">
+      <h2>編輯禮券</h2>
+      <p class="hint">修正上傳時打錯的內容。兌換狀態請用列表的「標記兌換／取消兌換」。</p>
+      <input type="hidden" id="code-edit-id">
+      <label>禮品名稱 <input type="text" id="code-edit-gift-name" placeholder="例：7-ELEVEN 100元數位商品禮券"></label>
+      <label>密碼／序號 <input type="text" id="code-edit-code" required></label>
+      <label>兌換連結 <input type="text" id="code-edit-url" placeholder="https://…"></label>
+      <label>面額 <input type="text" id="code-edit-value" placeholder="例：100"></label>
+      <label>到期日 <input type="text" id="code-edit-expires" placeholder="YYYY-MM-DD"></label>
+      <label>圈存開始日 <input type="text" id="code-edit-earmark-start" placeholder="YYYY-MM-DD"></label>
+      <label>圈存結束日 <input type="text" id="code-edit-earmark-end" placeholder="YYYY-MM-DD"></label>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="code-cancel">取消</button>
+        <button type="submit" class="btn">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- 兌換對話框 -->
   <dialog id="redeem-dialog">
     <form id="redeem-form" method="dialog" class="card-form">

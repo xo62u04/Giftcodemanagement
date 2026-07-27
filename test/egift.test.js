@@ -171,6 +171,64 @@ test('問題3：狀態篩選支援已圈存，統計含已圈存張數', async (
   assert.strictEqual(stats.total, stats.redeemed + stats.available + stats.earmarked);
 });
 
+// ---- 單張編輯（修正 CSV 打錯的內容）----
+test('單張編輯：更新內容欄位並回傳更新後資料', async () => {
+  await upload([
+    NEW_HEADER,
+    '打錯的名稱,https://ibongift.com/Tickets/EDIT001,WRONGPW,999,,,,,未兌換',
+  ].join('\n'), 'edit.csv');
+  const id = (await (await fetch(`${base}/api/codes?q=WRONGPW`)).json()).items[0].id;
+
+  const res = await fetch(`${base}/api/codes/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      gift_name: '7-ELEVEN 100元數位商品禮券',
+      code: 'FIXEDPW',
+      redeem_url: 'https://ibongift.com/Tickets/EDIT001',
+      face_value: '100',
+      expires_at: '2026-12-31',
+      earmark_start: '',
+      earmark_end: '',
+    }),
+  });
+  const body = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(body.gift_name, '7-ELEVEN 100元數位商品禮券');
+  assert.strictEqual(body.code, 'FIXEDPW');
+  assert.strictEqual(body.face_value, '100');
+  assert.strictEqual(body.expires_at, '2026-12-31');
+});
+
+test('單張編輯：兌換連結改成別張已用的連結會擋下（409）', async () => {
+  await upload([
+    NEW_HEADER,
+    '甲,https://ibongift.com/Tickets/UNIQ_A,PWA,100,,,,,未兌換',
+    '乙,https://ibongift.com/Tickets/UNIQ_B,PWB,100,,,,,未兌換',
+  ].join('\n'), 'two.csv');
+  const a = (await (await fetch(`${base}/api/codes?q=PWA`)).json()).items[0];
+
+  const res = await fetch(`${base}/api/codes/${a.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: a.code, redeem_url: 'https://ibongift.com/Tickets/UNIQ_B' }),
+  });
+  assert.strictEqual(res.status, 409);
+});
+
+test('單張編輯：找不到禮券回傳 404，空密碼回傳 400', async () => {
+  const notFound = await fetch(`${base}/api/codes/999999`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'X' }),
+  });
+  assert.strictEqual(notFound.status, 404);
+
+  const id = (await (await fetch(`${base}/api/codes?q=PWB`)).json()).items[0].id;
+  const empty = await fetch(`${base}/api/codes/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: '  ' }),
+  });
+  assert.strictEqual(empty.status, 400);
+});
+
 // ---- 範本含新欄位 ----
 test('範本包含兌換連結等新欄位', async () => {
   const buf = Buffer.from(await (await fetch(`${base}/api/template.csv`)).arrayBuffer());

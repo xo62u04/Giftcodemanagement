@@ -333,6 +333,36 @@ app.post('/api/codes/:id/unredeem', (req, res) => {
   res.json(db.prepare(`${CODE_SELECT} WHERE k.id = ?`).get(code.id));
 });
 
+// 單張編輯：修正 CSV 打錯的內容欄位（狀態仍由標記兌換／取消兌換管理）
+app.put('/api/codes/:id', (req, res) => {
+  const code = db.prepare('SELECT * FROM codes WHERE id = ?').get(req.params.id);
+  if (!code) return res.status(404).json({ error: '找不到這張禮券' });
+
+  const newCode = String(req.body.code ?? code.code).trim();
+  if (!newCode) return res.status(400).json({ error: '密碼／序號不可為空' });
+
+  // 兌換連結：空字串正規化為 NULL（維持唯一索引語意），非空則檢查未被其他張佔用
+  let redeemUrl = req.body.redeem_url === undefined
+    ? code.redeem_url
+    : String(req.body.redeem_url || '').trim();
+  redeemUrl = redeemUrl || null;
+  if (redeemUrl) {
+    const clash = db.prepare('SELECT id FROM codes WHERE redeem_url = ? AND id != ?').get(redeemUrl, code.id);
+    if (clash) return res.status(409).json({ error: '這個兌換連結已被其他禮券使用' });
+  }
+
+  const pick = (key) => (req.body[key] === undefined ? code[key] : String(req.body[key] || '').trim());
+  db.prepare(`
+    UPDATE codes SET gift_name = ?, code = ?, redeem_url = ?, face_value = ?, expires_at = ?,
+                     earmark_start = ?, earmark_end = ?
+    WHERE id = ?
+  `).run(
+    pick('gift_name'), newCode, redeemUrl, pick('face_value'), pick('expires_at'),
+    pick('earmark_start'), pick('earmark_end'), code.id
+  );
+  res.json(db.prepare(`${CODE_SELECT} WHERE k.id = ?`).get(code.id));
+});
+
 // 批次兌換：貼上多個禮券碼，一次標記到同一個活動
 app.post('/api/codes/redeem-bulk', (req, res) => {
   const campaignName = String(req.body.campaign || '').trim();

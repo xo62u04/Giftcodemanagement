@@ -184,6 +184,7 @@ async function loadCodes() {
   try {
     const data = await api(`/api/codes?${params}`);
     state.total = data.total;
+    state.items = data.items;
     const body = $('#codes-body');
     body.innerHTML = data.items.length
       ? data.items.map(renderCodeRow).join('')
@@ -206,9 +207,10 @@ const STATUS_BADGE = {
 function renderCodeRow(item) {
   const status = item.display_status || item.status;
   const statusBadge = STATUS_BADGE[status] || STATUS_BADGE.available;
-  const action = status === 'redeemed'
+  const redeemAction = status === 'redeemed'
     ? `<button class="btn btn-small btn-danger" data-action="unredeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">取消兌換</button>`
     : `<button class="btn btn-small" data-action="redeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">標記兌換</button>`;
+  const action = `<button class="btn btn-small btn-secondary" data-action="edit-code" data-id="${item.id}">編輯</button> ${redeemAction}`;
   const urlCell = item.redeem_url
     ? `<a href="${escapeHtml(item.redeem_url)}" target="_blank" rel="noopener" class="redeem-link" title="${escapeHtml(item.redeem_url)}">開啟連結</a>`
     : '';
@@ -296,6 +298,45 @@ $('#codes-body').addEventListener('click', async (e) => {
     } catch (err) {
       toast(err.message, true);
     }
+  } else if (btn.dataset.action === 'edit-code') {
+    const item = (state.items || []).find((i) => String(i.id) === btn.dataset.id);
+    if (!item) return;
+    $('#code-edit-id').value = item.id;
+    $('#code-edit-gift-name').value = item.gift_name || '';
+    $('#code-edit-code').value = item.code || '';
+    $('#code-edit-url').value = item.redeem_url || '';
+    $('#code-edit-value').value = item.face_value || '';
+    $('#code-edit-expires').value = item.expires_at || '';
+    $('#code-edit-earmark-start').value = item.earmark_start || '';
+    $('#code-edit-earmark-end').value = item.earmark_end || '';
+    $('#code-dialog').showModal();
+  }
+});
+
+$('#code-cancel').addEventListener('click', () => $('#code-dialog').close());
+
+$('#code-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#code-edit-id').value;
+  try {
+    await api(`/api/codes/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gift_name: $('#code-edit-gift-name').value,
+        code: $('#code-edit-code').value,
+        redeem_url: $('#code-edit-url').value,
+        face_value: $('#code-edit-value').value,
+        expires_at: $('#code-edit-expires').value,
+        earmark_start: $('#code-edit-earmark-start').value,
+        earmark_end: $('#code-edit-earmark-end').value,
+      }),
+    });
+    $('#code-dialog').close();
+    toast('已更新禮券');
+    loadCodes();
+  } catch (err) {
+    toast(err.message, true);
   }
 });
 
