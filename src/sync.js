@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const { parseGiftcodeCsv } = require('./csv');
+const { importRows } = require('./importer');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS sync_files (
@@ -83,9 +84,6 @@ function runSync() {
   };
 
   const findSynced = db.prepare('SELECT * FROM sync_files WHERE path = ?');
-  const insertCode = db.prepare(
-    'INSERT OR IGNORE INTO codes (code, batch_id, face_value, expires_at) VALUES (?, ?, ?, ?)'
-  );
 
   for (const file of files) {
     const rel = path.relative(dir, file).split(path.sep).join('/');
@@ -117,10 +115,11 @@ function runSync() {
       ).run(rel, `NAS 同步（${dir}）`, 'NAS 同步', giftName);
       const batchId = batch.lastInsertRowid;
 
-      let imported = 0;
-      for (const row of parsed.rows) {
-        if (insertCode.run(row.code, batchId, row.face_value, row.expires_at).changes === 1) imported++;
-      }
+      const { imported } = importRows(db, {
+        rows: parsed.rows,
+        batchId,
+        defaultGiftName: giftName,
+      });
       db.prepare(
         'UPDATE batches SET total_count = ?, imported_count = ?, duplicate_count = ? WHERE id = ?'
       ).run(parsed.rows.length, imported, parsed.rows.length - imported, batchId);

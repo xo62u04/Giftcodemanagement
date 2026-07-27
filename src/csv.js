@@ -7,7 +7,8 @@ const iconv = require('iconv-lite');
 const CODE_HEADERS = [
   'code', 'codes', 'giftcode', 'gift_code', 'gift code', 'voucher', 'voucher_code',
   'voucher code', 'coupon', 'coupon_code', 'serial', 'serial_no', 'sn', 'pin',
-  '禮券碼', '禮券序號', '禮券代碼', '兌換碼', '序號', '卡號', '代碼',
+  'password', 'pw',
+  '禮券碼', '禮券序號', '禮券代碼', '兌換碼', '兌換密碼', '密碼', '序號', '卡號', '代碼',
 ];
 const VALUE_HEADERS = ['face_value', 'facevalue', 'value', 'amount', 'price', '面額', '金額', '票面金額'];
 const EXPIRY_HEADERS = ['expires_at', 'expiry', 'expire', 'expiration', 'expire_date', 'valid_until', '到期日', '有效期限', '效期'];
@@ -15,16 +16,33 @@ const GIFT_NAME_HEADERS = [
   'gift_name', 'giftname', 'gift name', 'product_name', 'productname', 'product name', 'item_name',
   '禮品名稱', '禮券名稱', '商品名稱', '品名', '禮品', '禮券',
 ];
+// 電子禮券：兌換連結（一個密碼對應一個連結，作為唯一鍵）、經手人、適用專案、圈存起訖日、狀態
+const REDEEM_URL_HEADERS = [
+  'redeem_url', 'redeemurl', 'redeem url', 'redemption_url', 'url', 'link',
+  '兌換連結', '兌換網址', '連結', '網址',
+];
+const HANDLER_HEADERS = ['handler', 'redeemed_by', 'operator', '經手人', '代領人', '承辦人', '處理人'];
+const PROJECT_HEADERS = ['project', 'campaign', 'campaign_name', '適用專案', '專案', '活動', '活動名稱', '使用活動'];
+const EARMARK_START_HEADERS = ['earmark_start', 'hold_start', '圈存開始日', '圈存起日', '圈存開始', '圈存起'];
+const EARMARK_END_HEADERS = ['earmark_end', 'hold_end', '圈存結束日', '圈存迄日', '圈存結束', '圈存迄'];
+const STATUS_HEADERS = ['status', 'state', '狀態'];
 
-// 下載用的 CSV 範本。欄位名稱刻意取自上方各 *_HEADERS 清單，
-// 所以範本本身就是這支解析器吃得下的格式。
+// 下載用的 CSV 範本。欄位名稱與順序比照使用者實際的電子禮券檔（禮品名稱／兌換連結／密碼…）。
 const TEMPLATE_SAMPLE_CODES = ['ABC12345678', 'ABC12345679'];
 const TEMPLATE_CSV = [
-  '禮券碼,禮品名稱,面額,到期日',
-  `${TEMPLATE_SAMPLE_CODES[0]},全家便利商店500元禮券,500,2026-12-31`,
-  `${TEMPLATE_SAMPLE_CODES[1]},全家便利商店500元禮券,500,2026-12-31`,
+  '禮品名稱,兌換連結,密碼,面額,經手人,適用專案(選填),圈存開始日(選填),圈存結束日(選填),狀態',
+  `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE1,${TEMPLATE_SAMPLE_CODES[0]},100,,,,,未兌換`,
+  `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE2,${TEMPLATE_SAMPLE_CODES[1]},100,,,,,未兌換`,
   '',
 ].join('\r\n');
+
+// 把 CSV 內的狀態文字對應成內部狀態值
+function mapStatus(raw) {
+  const t = String(raw || '').trim();
+  if (t === '已兌換' || /redeem/i.test(t)) return 'redeemed';
+  if (t === '已圈存' || /earmark|hold|reserv/i.test(t)) return 'earmarked';
+  return 'available'; // 未兌換／空白
+}
 
 /**
  * 把 CSV buffer 解成字串，處理 Windows 上常見的編碼：
@@ -48,7 +66,11 @@ function decodeCsvBuffer(buffer) {
 }
 
 function normalizeHeader(h) {
-  return String(h || '').replace(/^﻿/, '').trim().toLowerCase();
+  return String(h || '')
+    .replace(/^﻿/, '')
+    .replace(/[（(][^）)]*[）)]/g, '') // 去掉「(選填)」之類的括號註記
+    .trim()
+    .toLowerCase();
 }
 
 function findColumn(headers, candidates) {
@@ -82,10 +104,22 @@ function parseGiftcodeCsv(buffer) {
   let dataStart = 1;
 
   let giftNameIdx = -1;
+  let urlIdx = -1;
+  let handlerIdx = -1;
+  let projectIdx = -1;
+  let earmarkStartIdx = -1;
+  let earmarkEndIdx = -1;
+  let statusIdx = -1;
   if (codeIdx !== -1) {
     valueIdx = findColumn(headers, VALUE_HEADERS);
     expiryIdx = findColumn(headers, EXPIRY_HEADERS);
     giftNameIdx = findColumn(headers, GIFT_NAME_HEADERS);
+    urlIdx = findColumn(headers, REDEEM_URL_HEADERS);
+    handlerIdx = findColumn(headers, HANDLER_HEADERS);
+    projectIdx = findColumn(headers, PROJECT_HEADERS);
+    earmarkStartIdx = findColumn(headers, EARMARK_START_HEADERS);
+    earmarkEndIdx = findColumn(headers, EARMARK_END_HEADERS);
+    statusIdx = findColumn(headers, STATUS_HEADERS);
   } else {
     // 無法辨識標頭：把第一欄當禮券碼
     codeIdx = 0;
@@ -93,6 +127,8 @@ function parseGiftcodeCsv(buffer) {
     const looksLikeHeader = /[一-鿿]/.test(first) || /^(code|codes|no|number|id|name)$/.test(first);
     dataStart = looksLikeHeader ? 1 : 0;
   }
+
+  const cell = (rec, idx) => (idx !== -1 ? String(rec[idx] || '').trim() : '');
 
   const rows = [];
   const errors = [];
@@ -108,16 +144,26 @@ function parseGiftcodeCsv(buffer) {
       errors.push(`第 ${i + 1} 列：範本範例列，已略過`);
       continue;
     }
-    if (seen.has(code)) {
-      errors.push(`第 ${i + 1} 列：禮券碼「${code}」在檔案內重複，已略過`);
+    // 有兌換連結時以連結為唯一鍵，否則退回以禮券碼／密碼判斷檔內重複
+    const redeem_url = cell(rec, urlIdx);
+    const dedupKey = redeem_url || code;
+    if (seen.has(dedupKey)) {
+      const label = redeem_url ? `兌換連結「${redeem_url}」` : `禮券碼「${code}」`;
+      errors.push(`第 ${i + 1} 列：${label}在檔案內重複，已略過`);
       continue;
     }
-    seen.add(code);
+    seen.add(dedupKey);
     rows.push({
       code,
-      face_value: valueIdx !== -1 ? String(rec[valueIdx] || '').trim() : '',
-      expires_at: expiryIdx !== -1 ? String(rec[expiryIdx] || '').trim() : '',
-      gift_name: giftNameIdx !== -1 ? String(rec[giftNameIdx] || '').trim() : '',
+      redeem_url,
+      face_value: cell(rec, valueIdx),
+      expires_at: cell(rec, expiryIdx),
+      gift_name: cell(rec, giftNameIdx),
+      handler: cell(rec, handlerIdx),
+      project: cell(rec, projectIdx),
+      earmark_start: cell(rec, earmarkStartIdx),
+      earmark_end: cell(rec, earmarkEndIdx),
+      status: mapStatus(cell(rec, statusIdx)),
     });
   }
   // 取第一個非空的 gift_name 作為整批的禮品名稱

@@ -81,6 +81,7 @@ async function loadStats() {
     const [s, campaigns] = await Promise.all([api('/api/stats'), api('/api/campaigns')]);
     $('#stat-total').textContent = s.total;
     $('#stat-available').textContent = s.available;
+    $('#stat-earmarked').textContent = s.earmarked ?? 0;
     $('#stat-redeemed').textContent = s.redeemed;
     $('#stat-batches').textContent = s.batch_count;
     const body = $('#campaign-stats');
@@ -186,7 +187,7 @@ async function loadCodes() {
     const body = $('#codes-body');
     body.innerHTML = data.items.length
       ? data.items.map(renderCodeRow).join('')
-      : '<tr><td colspan="9" class="empty">沒有符合條件的禮券</td></tr>';
+      : '<tr><td colspan="12" class="empty">沒有符合條件的禮券</td></tr>';
     const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
     $('#page-info').textContent = `第 ${data.page} / ${totalPages} 頁（共 ${data.total} 筆）`;
     $('#btn-prev').disabled = data.page <= 1;
@@ -196,19 +197,35 @@ async function loadCodes() {
   }
 }
 
+const STATUS_BADGE = {
+  redeemed: '<span class="badge badge-redeemed">已兌換</span>',
+  earmarked: '<span class="badge badge-earmarked">已圈存</span>',
+  available: '<span class="badge badge-available">未兌換</span>',
+};
+
 function renderCodeRow(item) {
-  const statusBadge = item.status === 'redeemed'
-    ? '<span class="badge badge-redeemed">已兌換</span>'
-    : '<span class="badge badge-available">未兌換</span>';
-  const action = item.status === 'redeemed'
+  const status = item.display_status || item.status;
+  const statusBadge = STATUS_BADGE[status] || STATUS_BADGE.available;
+  const action = status === 'redeemed'
     ? `<button class="btn btn-small btn-danger" data-action="unredeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">取消兌換</button>`
     : `<button class="btn btn-small" data-action="redeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">標記兌換</button>`;
+  const urlCell = item.redeem_url
+    ? `<a href="${escapeHtml(item.redeem_url)}" target="_blank" rel="noopener" class="redeem-link" title="${escapeHtml(item.redeem_url)}">開啟連結</a>`
+    : '';
+  let earmarkCell = '';
+  if (item.earmark_start || item.earmark_end) {
+    earmarkCell = `${escapeHtml(item.earmark_start || '?')} ~ ${escapeHtml(item.earmark_end || '?')}`;
+  } else if (status === 'earmarked') {
+    earmarkCell = '<span class="muted">無期限</span>';
+  }
   return `<tr>
     <td>${escapeHtml(item.gift_name || '')}</td>
     <td><code>${escapeHtml(item.code)}</code></td>
+    <td>${urlCell}</td>
     <td>${escapeHtml(item.face_value)}</td>
     <td>${escapeHtml(item.expires_at)}</td>
     <td>${statusBadge}</td>
+    <td style="white-space:nowrap;font-size:0.9em">${earmarkCell}</td>
     <td>${escapeHtml(item.campaign_name || '')}</td>
     <td>${escapeHtml(item.redeemed_by)}</td>
     <td>${formatTime(item.redeemed_at)}</td>
@@ -305,6 +322,17 @@ $('#redeem-form').addEventListener('submit', async (e) => {
 });
 
 // ---- 上傳 CSV ----
+$('#btn-open-upload').addEventListener('click', () => {
+  $('#upload-form').reset();
+  const box = $('#upload-result');
+  box.classList.add('hidden');
+  box.classList.remove('error');
+  box.innerHTML = '';
+  autoFillUserFields();
+  $('#upload-dialog').showModal();
+});
+$('#upload-cancel').addEventListener('click', () => $('#upload-dialog').close());
+
 $('#upload-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const file = $('#upload-file').files[0];

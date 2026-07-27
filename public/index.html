@@ -26,6 +26,7 @@
       <div class="stat-cards">
         <div class="stat-card"><div class="stat-label">禮券總數</div><div class="stat-value" id="stat-total">–</div></div>
         <div class="stat-card"><div class="stat-label">未兌換</div><div class="stat-value stat-available" id="stat-available">–</div></div>
+        <div class="stat-card"><div class="stat-label">已圈存</div><div class="stat-value stat-earmarked" id="stat-earmarked">–</div></div>
         <div class="stat-card"><div class="stat-label">已兌換</div><div class="stat-value stat-redeemed" id="stat-redeemed">–</div></div>
         <div class="stat-card"><div class="stat-label">上傳批次</div><div class="stat-value" id="stat-batches">–</div></div>
       </div>
@@ -46,29 +47,17 @@
 
     <!-- 禮券管理 -->
     <section id="tab-codes" class="tab">
-      <form id="upload-form" class="card-form">
-        <h2>上傳禮券 CSV</h2>
-        <p class="hint">
-          支援含標頭的 CSV（禮券碼欄位可命名為 code / 禮券碼 / 序號 / 兌換碼 等，
-          可選欄位：禮品名稱、面額、到期日）。若無可辨識的標頭，會以第一欄作為禮券碼。
-          與資料庫重複的禮券碼會自動略過。<br>
-          不知道格式怎麼填？下載範本照著填即可；範本內的兩列範例資料上傳時會自動略過。
-          另存檔名建議用實際禮品名稱（NAS 同步會以檔名作為禮品名稱）。
-        </p>
-        <label>CSV 檔案 <input type="file" id="upload-file" accept=".csv,text/csv" required></label>
-        <label>禮券名稱（選填） <input type="text" id="upload-gift-name" placeholder="例：全家便利商店500元禮券"></label>
-        <label>上傳人（選填） <input type="text" id="upload-by" placeholder="例：王小明"></label>
-        <label>批次備註（選填） <input type="text" id="upload-note" placeholder="例：2026 Q3 採購 500 元券"></label>
-        <button type="submit" class="btn">上傳</button>
-        <p><a href="/api/template.csv" class="btn btn-secondary" download>下載 CSV 範本</a></p>
-      </form>
-      <div id="upload-result" class="result-box hidden"></div>
+      <div class="section-heading">
+        <h2>禮券管理</h2>
+        <button class="btn" id="btn-open-upload">＋ 上傳禮券 CSV</button>
+      </div>
 
       <form id="filter-form" class="filter-bar">
         <input type="search" id="filter-q" placeholder="搜尋禮券碼…">
         <select id="filter-status">
           <option value="">全部狀態</option>
           <option value="available">未兌換</option>
+          <option value="earmarked">已圈存</option>
           <option value="redeemed">已兌換</option>
         </select>
         <select id="filter-batch"><option value="">全部批次</option></select>
@@ -79,11 +68,11 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>禮券名稱</th><th>禮券碼</th><th>面額</th><th>到期日</th><th>狀態</th>
+            <th>禮券名稱</th><th>密碼/序號</th><th>兌換連結</th><th>面額</th><th>到期日</th><th>狀態</th><th>圈存起訖</th>
             <th>使用活動</th><th>經手人</th><th>兌換時間</th><th>備註</th><th>操作</th>
           </tr>
         </thead>
-        <tbody id="codes-body"><tr><td colspan="10" class="empty">載入中…</td></tr></tbody>
+        <tbody id="codes-body"><tr><td colspan="12" class="empty">載入中…</td></tr></tbody>
       </table>
       <div class="pagination">
         <button class="btn btn-secondary" id="btn-prev">上一頁</button>
@@ -174,6 +163,30 @@
       </table>
     </section>
   </main>
+
+  <!-- 上傳 CSV 對話框 -->
+  <dialog id="upload-dialog" class="wide-dialog">
+    <form id="upload-form" class="card-form">
+      <h2>上傳禮券 CSV</h2>
+      <p class="hint">
+        支援含標頭的 CSV：密碼（序號，欄名可為 密碼 / 序號 / code 等）、
+        兌換連結（作為每張的唯一識別）、禮品名稱、面額、到期日，
+        以及經手人、適用專案、圈存開始/結束日、狀態（未兌換 / 已兌換 / 已圈存）。
+        <strong>禮品名稱與狀態逐列各自套用</strong>；兌換連結相同視為重複自動略過。<br>
+        不知道格式怎麼填？下載範本照著填即可；範本內的兩列範例資料上傳時會自動略過。
+      </p>
+      <label>CSV 檔案 <input type="file" id="upload-file" accept=".csv,text/csv" required></label>
+      <label>禮券名稱（選填） <input type="text" id="upload-gift-name" placeholder="例：全家便利商店500元禮券"></label>
+      <label>上傳人（選填） <input type="text" id="upload-by" placeholder="例：王小明"></label>
+      <label>批次備註（選填） <input type="text" id="upload-note" placeholder="例：2026 Q3 採購 500 元券"></label>
+      <div id="upload-result" class="result-box hidden"></div>
+      <div class="dialog-actions">
+        <a href="/api/template.csv" class="btn btn-secondary" download style="margin-right:auto">下載 CSV 範本</a>
+        <button type="button" class="btn btn-secondary" id="upload-cancel">關閉</button>
+        <button type="submit" class="btn">上傳</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- 兌換對話框 -->
   <dialog id="redeem-dialog">

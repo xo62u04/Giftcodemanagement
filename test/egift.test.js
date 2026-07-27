@@ -1,0 +1,181 @@
+'use strict';
+
+// 電子禮券強化：每張各自的禮品名稱、兌換連結、圈存狀態、上傳套用狀態
+// 對應使用者回報的四個問題（見 docs 內範本檔）。
+const { test, before, after } = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+
+require('./helpers/isolate-db')('giftcode-egift-');
+
+const app = require('../src/server');
+const db = require('../src/db');
+
+let server;
+let base;
+
+before(async () => {
+  server = app.listen(0);
+  await new Promise((resolve) => server.on('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+
+after(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  db.close();
+  fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });
+});
+
+// 用 FormData 上傳（一般情況）
+async function upload(content, filename = 'codes.csv') {
+  const fd = new FormData();
+  fd.append('file', new Blob([content], { type: 'text/csv' }), filename);
+  const res = await fetch(`${base}/api/batches`, { method: 'POST', body: fd });
+  return { status: res.status, body: await res.json() };
+}
+
+// 手工組 multipart，讓檔名以「原始 UTF-8 位元組」出現在 Content-Disposition，
+// 重現 busboy 以 latin1 解讀中文檔名造成的亂碼情境（問題 2）。
+async function uploadRawFilename(content, filename) {
+  const boundary = '----egiftboundary1234';
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n`
+    + 'Content-Type: text/csv\r\n\r\n',
+    'utf8'
+  );
+  const body = Buffer.concat([
+    head,
+    Buffer.from(content, 'utf8'),
+    Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
+  ]);
+  const res = await fetch(`${base}/api/batches`, {
+    method: 'POST',
+    headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+    body,
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+const NEW_HEADER = '禮品名稱,兌換連結,密碼,面額,經手人,適用專案(選填),圈存開始日(選填),圈存結束日(選填),狀態';
+
+// ---- 問題 1：每張禮券各自的禮品名稱 ----
+test('問題1：同批不同禮品名稱應各自保留，而非整批統一', async () => {
+  const rows = [
+    NEW_HEADER,
+    '7-ELEVEN 100元數位商品禮券,https://ibongift.com/Tickets/AAA100,P100A,100,代筆,,,,已兌換',
+    '7-ELEVEN 100元數位商品禮券,https://ibongift.com/Tickets/AAA101,P100B,100,代筆,,,,已兌換',
+    '7-ELEVEN 500元數位商品禮券,https://ibongift.com/Tickets/BBB500,P500A,500,代筆,,,,已兌換',
+  ].join('\n');
+  const { status, body } = await upload(rows, 'mix.csv');
+  assert.strictEqual(status, 201);
+  assert.strictEqual(body.imported, 3);
+
+  const list = await (await fetch(`${base}/api/codes?q=P100A`)).json();
+  assert.strictEqual(list.items[0].gift_name, '7-ELEVEN 100元數位商品禮券');
+  const list500 = await (await fetch(`${base}/api/codes?q=P500A`)).json();
+  assert.strictEqual(list500.items[0].gift_name, '7-ELEVEN 500元數位商品禮券');
+});
+
+// ---- 問題 2：中文檔名不應變亂碼 ----
+test('問題2：中文檔名以 UTF-8 正確保存，不變亂碼', async () => {
+  const filename = '【測試範本】100元電子禮券_CSV檔.csv';
+  const csv = `${NEW_HEADER}\n名稱A,https://ibongift.com/Tickets/FN001,FNAAA,100,代筆,,,,未兌換\n`;
+  const { status } = await uploadRawFilename(csv, filename);
+  assert.strictEqual(status, 201);
+
+  const batches = await (await fetch(`${base}/api/batches`)).json();
+  const found = batches.find((b) => b.filename === filename);
+  assert.ok(found, `批次檔名應為「${filename}」，實際：${batches.map((b) => b.filename).join(' / ')}`);
+});
+
+// ---- 問題 4：兌換連結為唯一鍵 ----
+test('問題4：兌換連結相同視為重複，密碼相同但連結不同則各自匯入', async () => {
+  const dupUrl = [
+    NEW_HEADER,
+    '禮品X,https://ibongift.com/Tickets/DUP001,SAME1,100,,,,,未兌換',
+    '禮品X,https://ibongift.com/Tickets/DUP001,SAME2,100,,,,,未兌換',
+  ].join('\n');
+  const r1 = await upload(dupUrl, 'dupurl.csv');
+  assert.strictEqual(r1.body.imported, 1, '相同兌換連結第二筆應被視為重複');
+
+  const samePw = [
+    NEW_HEADER,
+    '禮品Y,https://ibongift.com/Tickets/PW111,SAMEPW,100,,,,,未兌換',
+    '禮品Y,https://ibongift.com/Tickets/PW222,SAMEPW,100,,,,,未兌換',
+  ].join('\n');
+  const r2 = await upload(samePw, 'samepw.csv');
+  assert.strictEqual(r2.body.imported, 2, '密碼相同但連結不同應各自匯入');
+});
+
+test('問題4：兌換連結出現在列表與匯出', async () => {
+  const list = await (await fetch(`${base}/api/codes?q=SAMEPW`)).json();
+  assert.strictEqual(list.items[0].redeem_url, 'https://ibongift.com/Tickets/PW222');
+
+  const csv = await (await fetch(`${base}/api/export.csv?q=SAMEPW`)).text();
+  assert.match(csv, /兌換連結/, '匯出標頭應含兌換連結');
+  assert.match(csv, /https:\/\/ibongift\.com\/Tickets\/PW222/);
+});
+
+// ---- 問題 3：三態與圈存 ----
+test('問題3：上傳套用狀態——已圈存(未過期)、已兌換、未兌換', async () => {
+  const rows = [
+    NEW_HEADER,
+    '券,https://ibongift.com/Tickets/ST001,STRED,100,王經手,雙11活動,,,已兌換',
+    '券,https://ibongift.com/Tickets/ST002,STERM,100,李經手,雙11活動,,2026-12-31,已圈存',
+    '券,https://ibongift.com/Tickets/ST003,STAVA,100,,,,,未兌換',
+  ].join('\n');
+  const { status } = await upload(rows, 'status.csv');
+  assert.strictEqual(status, 201);
+
+  const redeemed = await (await fetch(`${base}/api/codes?q=STRED`)).json();
+  assert.strictEqual(redeemed.items[0].display_status, 'redeemed');
+  assert.strictEqual(redeemed.items[0].redeemed_by, '王經手');
+  assert.strictEqual(redeemed.items[0].campaign_name, '雙11活動');
+
+  const earmarked = await (await fetch(`${base}/api/codes?q=STERM`)).json();
+  assert.strictEqual(earmarked.items[0].display_status, 'earmarked');
+  assert.strictEqual(earmarked.items[0].campaign_name, '雙11活動');
+
+  const avail = await (await fetch(`${base}/api/codes?q=STAVA`)).json();
+  assert.strictEqual(avail.items[0].display_status, 'available');
+});
+
+test('問題3：圈存期已過且未兌換，顯示回退為未兌換', async () => {
+  const rows = [
+    NEW_HEADER,
+    '券,https://ibongift.com/Tickets/EXP001,EXPIRE,100,,舊活動,2020-01-01,2020-12-31,已圈存',
+  ].join('\n');
+  await upload(rows, 'expired.csv');
+  const list = await (await fetch(`${base}/api/codes?q=EXPIRE`)).json();
+  assert.strictEqual(list.items[0].display_status, 'available', '過期圈存應顯示為未兌換');
+});
+
+test('問題3：無圈存日期的已圈存視為無限期圈存', async () => {
+  const rows = [
+    NEW_HEADER,
+    '券,https://ibongift.com/Tickets/IND001,INDEF,100,,某活動,,,已圈存',
+  ].join('\n');
+  await upload(rows, 'indef.csv');
+  const list = await (await fetch(`${base}/api/codes?q=INDEF`)).json();
+  assert.strictEqual(list.items[0].display_status, 'earmarked');
+});
+
+test('問題3：狀態篩選支援已圈存，統計含已圈存張數', async () => {
+  const onlyEarmarked = await (await fetch(`${base}/api/codes?status=earmarked&q=STERM`)).json();
+  assert.strictEqual(onlyEarmarked.total, 1);
+
+  const stats = await (await fetch(`${base}/api/stats`)).json();
+  assert.ok(typeof stats.earmarked === 'number', '統計應含 earmarked 欄位');
+  assert.ok(stats.earmarked >= 2, `至少 STERM 與 INDEF 兩張已圈存，實際 ${stats.earmarked}`);
+  // 過期圈存不計入 earmarked
+  assert.strictEqual(stats.total, stats.redeemed + stats.available + stats.earmarked);
+});
+
+// ---- 範本含新欄位 ----
+test('範本包含兌換連結等新欄位', async () => {
+  const buf = Buffer.from(await (await fetch(`${base}/api/template.csv`)).arrayBuffer());
+  const text = buf.toString('utf8');
+  for (const h of ['禮品名稱', '兌換連結', '密碼', '面額', '狀態']) {
+    assert.ok(text.includes(h), `範本應含欄位 ${h}`);
+  }
+});

@@ -68,6 +68,7 @@ h2 { font-size: 16px; margin: 24px 0 12px; }
 .stat-label { font-size: 13px; color: #616e7c; }
 .stat-value { font-size: 30px; font-weight: 700; margin-top: 4px; }
 .stat-available { color: #0e9f6e; }
+.stat-earmarked { color: #2563eb; }
 .stat-redeemed { color: #d97706; }
 
 /* 表格 */
@@ -95,7 +96,11 @@ tr.over-budget td:first-child {
 
 .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge-available { background: #d1fae5; color: #065f46; }
+.badge-earmarked { background: #dbeafe; color: #1e40af; }
 .badge-redeemed { background: #fef3c7; color: #92400e; }
+.redeem-link { color: #2563eb; text-decoration: none; }
+.redeem-link:hover { text-decoration: underline; }
+.muted { color: #9aa5b1; }
 
 /* 篩選列 */
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -164,6 +169,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #1f6feb33; border
 
 /* 對話框 */
 dialog { border: none; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.25); padding: 0; width: min(480px, 90vw); }
+dialog.wide-dialog { width: min(600px, 92vw); }
 dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
 dialog .card-form { border: none; max-width: none; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }

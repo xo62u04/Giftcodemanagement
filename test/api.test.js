@@ -180,7 +180,10 @@ test('依活動篩選並匯出 CSV', async () => {
   const csvRes = await fetch(`${base}/api/export.csv?campaign_id=${anniversary.id}`);
   const csv = await csvRes.text();
   assert.match(csvRes.headers.get('content-type'), /text\/csv/);
-  assert.match(csv, /GIFT-001,已兌換,週年慶抽獎,王小明/);
+  // 新匯出欄序：禮品名稱,兌換連結,密碼,面額,到期日,經手人,適用專案,…,狀態,…
+  assert.match(csv.split('\n')[0], /兌換連結/, '匯出標頭應含兌換連結');
+  const line = csv.split('\n').find((l) => l.includes('GIFT-001'));
+  assert.ok(line.includes('王小明') && line.includes('週年慶抽獎') && line.includes('已兌換'));
 });
 
 test('範本範例列不會被匯入，實際填寫的禮券碼不受影響', async () => {
@@ -210,7 +213,7 @@ test('GET /api/template.csv 回傳可直接被解析器吃下的範本', async (
   assert.deepStrictEqual([buf[0], buf[1], buf[2]], [0xef, 0xbb, 0xbf], '應以 UTF-8 BOM 開頭');
 
   const text = buf.toString('utf8');
-  for (const header of ['禮券碼', '禮品名稱', '面額', '到期日']) {
+  for (const header of ['禮品名稱', '兌換連結', '密碼', '面額', '狀態']) {
     assert.ok(text.includes(header), `範本應包含欄位 ${header}`);
   }
 

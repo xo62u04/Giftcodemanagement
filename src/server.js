@@ -6,6 +6,7 @@ const express = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv, TEMPLATE_CSV } = require('./csv');
+const { importRows, getOrCreateCampaign } = require('./importer');
 const { runSync, getSyncStatus, setSyncDir } = require('./sync');
 const staffRouter = require('./staff');
 const backup = require('./backup');
@@ -45,25 +46,41 @@ app.put('/api/db-config', (req, res) => {
 
 const nowIso = () => new Date().toISOString();
 
+// multer 記憶體儲存的 originalname 是 busboy 以 latin1 解出的位元組，
+// 中文檔名會變亂碼（例：ã€æ¸¬è©¦…）。把位元組當 UTF-8 重新解碼即可還原。
+function decodeFilename(name) {
+  const raw = name || 'upload.csv';
+  try {
+    return Buffer.from(raw, 'latin1').toString('utf8');
+  } catch {
+    return raw;
+  }
+}
+
 function parseFaceValue(value) {
   if (value == null || value === '') return null;
   const match = String(value).replace(/,/g, '').match(/\d+(\.\d+)?/);
   return match ? Number.parseFloat(match[0]) : null;
 }
 
-function getOrCreateCampaign(name) {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return null;
-  const existing = db.prepare('SELECT id FROM campaigns WHERE name = ?').get(trimmed);
-  if (existing) return existing.id;
-  return db.prepare('INSERT INTO campaigns (name) VALUES (?)').run(trimmed).lastInsertRowid;
-}
+// 顯示狀態（讀取時計算）：已兌換維持已兌換；圈存但已過期且未兌換 → 回退為未兌換（available）；
+// 圈存未過期（或無圈存日期）→ earmarked；其餘 → available。
+const DISPLAY_STATUS_SQL = `
+  CASE
+    WHEN k.status = 'redeemed' THEN 'redeemed'
+    WHEN k.status = 'earmarked' AND k.earmark_end <> '' AND date(k.earmark_end) < date('now') THEN 'available'
+    WHEN k.status = 'earmarked' THEN 'earmarked'
+    ELSE 'available'
+  END`;
 
 // ---- 總覽統計 ----
 app.get('/api/stats', (req, res) => {
   const totals = db.prepare(`
     SELECT COUNT(*) AS total,
-           SUM(CASE WHEN status = 'redeemed' THEN 1 ELSE 0 END) AS redeemed
+           SUM(CASE WHEN status = 'redeemed' THEN 1 ELSE 0 END) AS redeemed,
+           SUM(CASE WHEN status = 'earmarked'
+                     AND (earmark_end = '' OR date(earmark_end) >= date('now'))
+                    THEN 1 ELSE 0 END) AS earmarked
     FROM codes
   `).get();
   const byCampaign = db.prepare(`
@@ -72,10 +89,14 @@ app.get('/api/stats', (req, res) => {
     GROUP BY c.id ORDER BY c.created_at DESC
   `).all();
   const batchCount = db.prepare('SELECT COUNT(*) AS n FROM batches').get().n;
+  const total = totals.total || 0;
+  const redeemed = totals.redeemed || 0;
+  const earmarked = totals.earmarked || 0;
   res.json({
-    total: totals.total || 0,
-    redeemed: totals.redeemed || 0,
-    available: (totals.total || 0) - (totals.redeemed || 0),
+    total,
+    redeemed,
+    earmarked,
+    available: total - redeemed - earmarked,
     batch_count: batchCount,
     campaigns: byCampaign,
   });
@@ -106,32 +127,30 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
 
   const note = String(req.body.note || '').trim();
   const uploadedBy = String(req.body.uploaded_by || '').trim();
-  // 優先用手動填入的名稱，否則從 CSV 欄位偵測
+  // 優先用手動填入的名稱，否則從 CSV 欄位偵測（作為缺名稱那幾列的預設值）
   const giftName = String(req.body.gift_name || '').trim() || parsed.gift_name || '';
-  const duplicates = [];
+  // multer/busboy 以 latin1 解讀檔名，中文會變亂碼；還原成 UTF-8。
+  const filename = decodeFilename(req.file.originalname);
 
   const result = db.transaction(() => {
     const batch = db.prepare(
       'INSERT INTO batches (filename, note, uploaded_by, gift_name) VALUES (?, ?, ?, ?)'
-    ).run(req.file.originalname || 'upload.csv', note, uploadedBy, giftName);
+    ).run(filename, note, uploadedBy, giftName);
     const batchId = batch.lastInsertRowid;
 
-    const insert = db.prepare(
-      'INSERT OR IGNORE INTO codes (code, batch_id, face_value, expires_at) VALUES (?, ?, ?, ?)'
-    );
-    let imported = 0;
-    for (const row of parsed.rows) {
-      const r = insert.run(row.code, batchId, row.face_value, row.expires_at);
-      if (r.changes === 1) imported++;
-      else duplicates.push(row.code);
-    }
+    const { imported, duplicates } = importRows(db, {
+      rows: parsed.rows,
+      batchId,
+      defaultGiftName: giftName,
+    });
 
     db.prepare(
       'UPDATE batches SET total_count = ?, imported_count = ?, duplicate_count = ? WHERE id = ?'
     ).run(parsed.rows.length, imported, duplicates.length, batchId);
 
-    return { batchId, imported };
+    return { batchId, imported, duplicates };
   })();
+  const duplicates = result.duplicates;
 
   const allImported = db.prepare('SELECT face_value FROM codes WHERE batch_id = ?').all(result.batchId);
   let totalCost = 0;
@@ -247,8 +266,8 @@ function buildCodeFilters(query) {
     where.push('k.code LIKE :q');
     params.q = `%${String(query.q).trim()}%`;
   }
-  if (query.status === 'available' || query.status === 'redeemed') {
-    where.push('k.status = :status');
+  if (['available', 'redeemed', 'earmarked'].includes(query.status)) {
+    where.push(`(${DISPLAY_STATUS_SQL}) = :status`);
     params.status = query.status;
   }
   if (query.batch_id) {
@@ -263,7 +282,8 @@ function buildCodeFilters(query) {
 }
 
 const CODE_SELECT = `
-  SELECT k.*, b.filename AS batch_filename, b.gift_name AS gift_name, c.name AS campaign_name
+  SELECT k.*, ${DISPLAY_STATUS_SQL} AS display_status,
+         b.filename AS batch_filename, c.name AS campaign_name
   FROM codes k
   JOIN batches b ON b.id = k.batch_id
   LEFT JOIN campaigns c ON c.id = k.campaign_id
@@ -291,7 +311,7 @@ app.post('/api/codes/:id/redeem', (req, res) => {
   const campaignName = String(req.body.campaign || '').trim();
   if (!campaignName) return res.status(400).json({ error: '請填寫使用的活動名稱' });
 
-  const campaignId = getOrCreateCampaign(campaignName);
+  const campaignId = getOrCreateCampaign(db, campaignName);
   db.prepare(`
     UPDATE codes SET status = 'redeemed', campaign_id = ?, redeemed_by = ?, redeemed_note = ?, redeemed_at = ?
     WHERE id = ?
@@ -326,7 +346,7 @@ app.post('/api/codes/redeem-bulk', (req, res) => {
   const note = String(req.body.note || '').trim();
 
   const result = db.transaction(() => {
-    const campaignId = getOrCreateCampaign(campaignName);
+    const campaignId = getOrCreateCampaign(db, campaignName);
     const find = db.prepare('SELECT * FROM codes WHERE code = ?');
     const redeem = db.prepare(`
       UPDATE codes SET status = 'redeemed', campaign_id = ?, redeemed_by = ?, redeemed_note = ?, redeemed_at = ?
@@ -364,19 +384,29 @@ app.get('/api/export.csv', (req, res) => {
     const s = String(v == null ? '' : v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const header = ['gift_name', 'code', 'status', 'campaign', 'redeemed_by', 'redeemed_note', 'redeemed_at', 'face_value', 'expires_at', 'batch_filename', 'created_at'];
+  const statusText = (disp) =>
+    disp === 'redeemed' ? '已兌換' : disp === 'earmarked' ? '已圈存' : '未兌換';
+  // 欄序與上傳範本一致（禮品名稱／兌換連結／密碼…），匯出檔可直接再上傳；
+  // 後段兌換時間／備註／批次檔名／建立時間為參考欄，解析時會被忽略。
+  const header = [
+    '禮品名稱', '兌換連結', '密碼', '面額', '到期日', '經手人', '適用專案',
+    '圈存開始日', '圈存結束日', '狀態', '兌換時間', '備註', '批次檔名', '建立時間',
+  ];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
       r.gift_name || '',
+      r.redeem_url || '',
       r.code,
-      r.status === 'redeemed' ? '已兌換' : '未兌換',
-      r.campaign_name || '',
-      r.redeemed_by,
-      r.redeemed_note,
-      r.redeemed_at || '',
       r.face_value,
       r.expires_at,
+      r.redeemed_by,
+      r.campaign_name || '',
+      r.earmark_start,
+      r.earmark_end,
+      statusText(r.display_status),
+      r.redeemed_at || '',
+      r.redeemed_note,
       r.batch_filename,
       r.created_at,
     ].map(esc).join(','));

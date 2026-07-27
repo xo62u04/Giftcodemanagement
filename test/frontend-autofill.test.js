@@ -31,13 +31,18 @@ test('每個頁籤按鈕都有對應的 section', () => {
   }
 });
 
-test('上傳表單位於禮券管理頁，系統設定頁只留同步與備份', () => {
+test('上傳入口在禮券管理頁（按鈕開啟彈窗），系統設定頁只留同步與備份', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
   const codesTab = html.match(/<section id="tab-codes"[\s\S]*?<\/section>/);
   assert.ok(codesTab, '應有 #tab-codes');
-  assert.ok(codesTab[0].includes('id="upload-form"'), '上傳表單應在禮券管理頁');
+  assert.ok(codesTab[0].includes('id="btn-open-upload"'), '禮券管理頁應有開啟上傳彈窗的按鈕');
+
+  // 上傳表單改成獨立的 <dialog>，仍存在但不再卡在頁面上
+  assert.ok(html.includes('id="upload-dialog"'), '應有上傳彈窗 #upload-dialog');
+  assert.ok(html.includes('id="upload-form"'), '彈窗內應有上傳表單');
+  assert.match(appJs, /\$\('#btn-open-upload'\)[\s\S]*?showModal\(\)/, '按鈕應以 showModal 開啟彈窗');
 
   const settingsTab = html.match(/<section id="tab-settings"[\s\S]*?<\/section>/);
   assert.ok(settingsTab, '應有 #tab-settings');
