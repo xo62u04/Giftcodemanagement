@@ -31,3 +31,8 @@ test('campaigns table has planned_count and budget columns', () => {
   assert.ok(cols.includes('budget'));
 });
 
+test('staff table has is_admin column', () => {
+  const cols = db.prepare('PRAGMA table_info(staff)').all().map((c) => c.name);
+  assert.ok(cols.includes('is_admin'));
+});
+

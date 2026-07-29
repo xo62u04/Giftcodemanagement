@@ -63,6 +63,12 @@ const db = new Database(DB_FILE);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// CSV 來源的日期格式不一致（2026/8/1、2026-08-01、20260801 都有），
+// SQLite 的 date() 只吃零填補的 YYYY-MM-DD，其餘一律回 NULL，比較就會失效。
+// 註冊一個 SQL 函式統一正規化，無法解析時回空字串（視同沒有期限）。
+const { normalizeDate } = require('./dates');
+db.function('norm_date', { deterministic: true }, (value) => normalizeDate(value));
+
 applySchema(db);
 
 module.exports = db;

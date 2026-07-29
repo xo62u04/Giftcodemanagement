@@ -1,14 +1,10 @@
 'use strict';
 
-const os = require('os');
 const { Router } = require('express');
 const db = require('./db');
+const { getCurrentWindowsUser, isAuthorizedAdmin } = require('./auth');
 
 const router = Router();
-
-function getCurrentWindowsUser() {
-  return String(process.env.USERNAME || os.userInfo().username || '').trim();
-}
 
 function cleanBody(body) {
   return {
@@ -16,6 +12,7 @@ function cleanBody(body) {
     department: String(body.department || '').trim(),
     employee_id: String(body.employee_id || '').trim(),
     windows_username: String(body.windows_username || '').trim(),
+    is_admin: body.is_admin ? 1 : 0,
   };
 }
 
@@ -28,6 +25,8 @@ router.get('/current-user', (req, res) => {
     windows_username: windowsUsername,
     matched: Boolean(staff),
     staff: staff || null,
+    is_admin: Boolean(staff && staff.is_admin),
+    can_admin: isAuthorizedAdmin(db), // 含 zero-admin 引導：據此決定前端是否顯示刪除按鈕
   });
 });
 
@@ -40,9 +39,9 @@ router.post('/staff', (req, res) => {
   if (!body.name) return res.status(400).json({ error: 'Name is required' });
 
   const result = db.prepare(`
-    INSERT INTO staff (name, department, employee_id, windows_username)
-    VALUES (?, ?, ?, ?)
-  `).run(body.name, body.department, body.employee_id, body.windows_username);
+    INSERT INTO staff (name, department, employee_id, windows_username, is_admin)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(body.name, body.department, body.employee_id, body.windows_username, body.is_admin);
 
   res.status(201).json(db.prepare('SELECT * FROM staff WHERE id = ?').get(result.lastInsertRowid));
 });
@@ -56,9 +55,9 @@ router.put('/staff/:id', (req, res) => {
 
   db.prepare(`
     UPDATE staff
-    SET name = ?, department = ?, employee_id = ?, windows_username = ?
+    SET name = ?, department = ?, employee_id = ?, windows_username = ?, is_admin = ?
     WHERE id = ?
-  `).run(body.name, body.department, body.employee_id, body.windows_username, req.params.id);
+  `).run(body.name, body.department, body.employee_id, body.windows_username, body.is_admin, req.params.id);
 
   res.json(db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id));
 });

@@ -171,6 +171,143 @@ test('問題3：狀態篩選支援已圈存，統計含已圈存張數', async (
   assert.strictEqual(stats.total, stats.redeemed + stats.available + stats.earmarked);
 });
 
+// ---- 圈存＝「被某活動綁住、還不能釋出」----
+// 判定看圈存期間本身，不看 status 欄位；期間未過（含尚未開始）就是已圈存。
+const yyyymmdd = (offsetDays) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const slash = (iso) => iso.replace(/-0?/g, '/').replace(/^\//, '');
+
+test('圈存：期間尚未開始（起日在未來）仍算已圈存', async () => {
+  await upload([
+    NEW_HEADER,
+    `券,https://ibongift.com/Tickets/FUT001,FUTERM,100,,未來活動,${yyyymmdd(4)},${yyyymmdd(34)},未兌換`,
+  ].join('\n'), 'future-earmark.csv');
+  const list = await (await fetch(`${base}/api/codes?q=FUTERM`)).json();
+  assert.strictEqual(list.items[0].display_status, 'earmarked', '圈存還沒開始也應顯示已圈存');
+});
+
+test('圈存：有圈存期間但狀態欄填未兌換，仍算已圈存', async () => {
+  await upload([
+    NEW_HEADER,
+    `券,https://ibongift.com/Tickets/NOF001,NOFLAG,100,,某活動,${yyyymmdd(-2)},${yyyymmdd(20)},未兌換`,
+  ].join('\n'), 'noflag-earmark.csv');
+  const list = await (await fetch(`${base}/api/codes?q=NOFLAG`)).json();
+  assert.strictEqual(list.items[0].display_status, 'earmarked');
+});
+
+test('圈存：斜線日期格式也要正確判斷過期與否', async () => {
+  await upload([
+    NEW_HEADER,
+    `券,https://ibongift.com/Tickets/SLA001,SLAOK,100,,活動A,${slash(yyyymmdd(-1))},${slash(yyyymmdd(30))},已圈存`,
+    '券,https://ibongift.com/Tickets/SLA002,SLAOLD,100,,活動B,2020/1/1,2020/12/31,已圈存',
+  ].join('\n'), 'slash-dates.csv');
+
+  const ok = await (await fetch(`${base}/api/codes?q=SLAOK`)).json();
+  assert.strictEqual(ok.items[0].display_status, 'earmarked', '斜線格式且未過期應為已圈存');
+
+  const old = await (await fetch(`${base}/api/codes?q=SLAOLD`)).json();
+  assert.strictEqual(old.items[0].display_status, 'available', '斜線格式且已過期應釋回未兌換');
+});
+
+test('圈存：狀態篩選只撈出圈存期尚有效的', async () => {
+  const list = await (await fetch(`${base}/api/codes?status=earmarked`)).json();
+  const codes = list.items.map((i) => i.code);
+  assert.ok(codes.includes('FUTERM'), '尚未開始的圈存要在結果內');
+  assert.ok(codes.includes('SLAOK'), '進行中的圈存要在結果內');
+  assert.ok(!codes.includes('SLAOLD'), '過期的圈存不該出現');
+  assert.ok(!codes.includes('EXPIRE'), '過期的圈存不該出現');
+  assert.ok(list.items.every((i) => i.display_status === 'earmarked'));
+});
+
+test('圈存：取消兌換後若圈存期仍有效，回到已圈存而非未兌換', async () => {
+  await upload([
+    NEW_HEADER,
+    `券,https://ibongift.com/Tickets/UNR001,UNRERM,100,,活動C,${yyyymmdd(-1)},${yyyymmdd(15)},未兌換`,
+  ].join('\n'), 'unredeem-earmark.csv');
+  const before = await (await fetch(`${base}/api/codes?q=UNRERM`)).json();
+  const id = before.items[0].id;
+
+  await fetch(`${base}/api/codes/${id}/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ campaign: '活動C', redeemed_by: '測試' }),
+  });
+  const redeemed = await (await fetch(`${base}/api/codes?q=UNRERM`)).json();
+  assert.strictEqual(redeemed.items[0].display_status, 'redeemed');
+
+  await fetch(`${base}/api/codes/${id}/unredeem`, { method: 'POST' });
+  const after = await (await fetch(`${base}/api/codes?q=UNRERM`)).json();
+  assert.strictEqual(after.items[0].display_status, 'earmarked', '圈存期還在，取消兌換應回到已圈存');
+});
+
+// ---- 圈存禮券要兌換前先警告（提醒，不阻擋）----
+test('圈存警告：dry_run 只回報不寫入，並列出已圈存的那幾張', async () => {
+  await upload([
+    NEW_HEADER,
+    `券,https://ibongift.com/Tickets/WRN001,WARN-圈存,100,,活動W,${yyyymmdd(-1)},${yyyymmdd(20)},未兌換`,
+    '券,https://ibongift.com/Tickets/WRN002,WARN-一般,100,,,,,未兌換',
+  ].join('\n'), 'warn.csv');
+
+  const res = await fetch(`${base}/api/codes/redeem-bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ codes: ['WARN-圈存', 'WARN-一般'], dry_run: true }),
+  });
+  const body = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(body.dry_run, true);
+  assert.strictEqual(body.would_redeem_count, 2);
+  assert.deepStrictEqual(body.earmarked.map((e) => e.code), ['WARN-圈存']);
+  assert.ok(body.earmarked[0].earmark_end, '警告內容要帶圈存迄日給使用者看');
+
+  // dry_run 不可以真的兌換
+  const after = await (await fetch(`${base}/api/codes?q=WARN-`)).json();
+  assert.ok(after.items.every((i) => i.display_status !== 'redeemed'), 'dry_run 不應寫入');
+});
+
+test('圈存警告：dry_run 不需要活動名稱', async () => {
+  const res = await fetch(`${base}/api/codes/redeem-bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ codes: ['WARN-圈存'], dry_run: true }),
+  });
+  assert.strictEqual(res.status, 200);
+});
+
+test('圈存警告：只是提醒，實際兌換不會被擋下來', async () => {
+  const res = await fetch(`${base}/api/codes/redeem-bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ codes: ['WARN-圈存'], campaign: '活動W2', redeemed_by: '測試' }),
+  });
+  const body = await res.json();
+  assert.strictEqual(body.redeemed_count, 1, '已圈存仍應兌換成功');
+  assert.deepStrictEqual(body.earmarked.map((e) => e.code), ['WARN-圈存'], '回應要標出哪幾張原本是圈存的');
+
+  const after = await (await fetch(`${base}/api/codes?q=WARN-圈存`)).json();
+  assert.strictEqual(after.items[0].display_status, 'redeemed');
+  assert.strictEqual(after.items[0].campaign_name, '活動W2');
+});
+
+test('圈存警告：單張兌換 API 一樣不阻擋已圈存', async () => {
+  await upload([
+    NEW_HEADER,
+    `券,https://ibongift.com/Tickets/WRN003,WARN-單張,100,,活動S,${yyyymmdd(-1)},${yyyymmdd(9)},未兌換`,
+  ].join('\n'), 'warn-single.csv');
+  const list = await (await fetch(`${base}/api/codes?q=WARN-單張`)).json();
+  assert.strictEqual(list.items[0].display_status, 'earmarked');
+
+  const res = await fetch(`${base}/api/codes/${list.items[0].id}/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ campaign: '活動S2', redeemed_by: '測試' }),
+  });
+  assert.strictEqual(res.status, 200);
+});
+
 // ---- 單張編輯（修正 CSV 打錯的內容）----
 test('單張編輯：更新內容欄位並回傳更新後資料', async () => {
   await upload([

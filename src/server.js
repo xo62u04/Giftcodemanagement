@@ -7,6 +7,7 @@ const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv, TEMPLATE_CSV } = require('./csv');
 const { importRows, getOrCreateCampaign } = require('./importer');
+const { requireAdmin } = require('./auth');
 const { runSync, getSyncStatus, setSyncDir } = require('./sync');
 const staffRouter = require('./staff');
 const backup = require('./backup');
@@ -63,25 +64,31 @@ function parseFaceValue(value) {
   return match ? Number.parseFloat(match[0]) : null;
 }
 
-// 顯示狀態（讀取時計算）：已兌換維持已兌換；圈存但已過期且未兌換 → 回退為未兌換（available）；
-// 圈存未過期（或無圈存日期）→ earmarked；其餘 → available。
+// 顯示狀態（讀取時計算）
+//   已兌換                                  → redeemed
+//   已配給某活動（有圈存起訖，或狀態就是 earmarked）
+//   且圈存迄日還沒過（含尚未開始）           → earmarked（不可釋出）
+//   圈存迄日已過而仍未兌換                   → available（自動釋回）
+// 判定看的是「圈存期間」而不是 status 欄位，因為取消兌換、或 CSV 狀態欄沒填「已圈存」
+// 的資料，status 會是 available，但那批序號其實還被某個活動綁著。
+// 迄日空白或格式無法解析時視為沒有期限，維持 earmarked。
 const DISPLAY_STATUS_SQL = `
   CASE
     WHEN k.status = 'redeemed' THEN 'redeemed'
-    WHEN k.status = 'earmarked' AND k.earmark_end <> '' AND date(k.earmark_end) < date('now') THEN 'available'
-    WHEN k.status = 'earmarked' THEN 'earmarked'
+    WHEN (k.earmark_start <> '' OR k.earmark_end <> '' OR k.status = 'earmarked')
+         AND (norm_date(k.earmark_end) = '' OR norm_date(k.earmark_end) >= date('now'))
+      THEN 'earmarked'
     ELSE 'available'
   END`;
 
 // ---- 總覽統計 ----
 app.get('/api/stats', (req, res) => {
+  // 統計與列表共用同一套顯示狀態判定，避免兩邊算出不同數字
   const totals = db.prepare(`
     SELECT COUNT(*) AS total,
-           SUM(CASE WHEN status = 'redeemed' THEN 1 ELSE 0 END) AS redeemed,
-           SUM(CASE WHEN status = 'earmarked'
-                     AND (earmark_end = '' OR date(earmark_end) >= date('now'))
-                    THEN 1 ELSE 0 END) AS earmarked
-    FROM codes
+           SUM(CASE WHEN (${DISPLAY_STATUS_SQL}) = 'redeemed' THEN 1 ELSE 0 END) AS redeemed,
+           SUM(CASE WHEN (${DISPLAY_STATUS_SQL}) = 'earmarked' THEN 1 ELSE 0 END) AS earmarked
+    FROM codes k
   `).get();
   const byCampaign = db.prepare(`
     SELECT c.id, c.name, COUNT(k.id) AS redeemed_count
@@ -177,7 +184,29 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
 });
 
 app.get('/api/batches', (req, res) => {
-  res.json(db.prepare('SELECT * FROM batches ORDER BY id DESC').all());
+  res.json(db.prepare(`
+    SELECT b.*,
+      (SELECT COUNT(*) FROM codes k WHERE k.batch_id = b.id) AS code_count,
+      (SELECT COUNT(*) FROM codes k WHERE k.batch_id = b.id AND k.status = 'redeemed') AS redeemed_count
+    FROM batches b ORDER BY b.id DESC
+  `).all());
+});
+
+// 刪除整批（限管理員）：連同該批所有禮券與 NAS 同步追蹤一起刪，之後可重新上傳修正版
+app.delete('/api/batches/:id', requireAdmin(db), (req, res) => {
+  const batch = db.prepare('SELECT * FROM batches WHERE id = ?').get(req.params.id);
+  if (!batch) return res.status(404).json({ error: '找不到這個批次' });
+
+  const result = db.transaction(() => {
+    const total = db.prepare('SELECT COUNT(*) AS n FROM codes WHERE batch_id = ?').get(batch.id).n;
+    const redeemed = db.prepare("SELECT COUNT(*) AS n FROM codes WHERE batch_id = ? AND status = 'redeemed'").get(batch.id).n;
+    db.prepare('DELETE FROM codes WHERE batch_id = ?').run(batch.id);
+    db.prepare('DELETE FROM sync_files WHERE batch_id = ?').run(batch.id);
+    db.prepare('DELETE FROM batches WHERE id = ?').run(batch.id);
+    return { total, redeemed };
+  })();
+
+  res.json({ ok: true, deleted_codes: result.total, redeemed_count: result.redeemed });
 });
 
 // ---- 活動 ----
@@ -302,6 +331,33 @@ app.get('/api/codes', (req, res) => {
   res.json({ items, total, page, page_size: pageSize });
 });
 
+// 依列表流水號範圍取 id（給前端「選取第 N ~ M 號」用，可跨頁）。
+// 排序與篩選必須與 GET /api/codes 完全一致，流水號才對得起來。
+const RANGE_MAX = 1000;
+
+app.get('/api/codes/ids', (req, res) => {
+  const from = Math.max(1, Number(req.query.from) || 0);
+  const to = Math.max(1, Number(req.query.to) || 0);
+  if (!from || !to) return res.status(400).json({ error: '請提供起訖流水號' });
+  if (to < from) return res.status(400).json({ error: '結束流水號不可小於開始流水號' });
+  if (to - from + 1 > RANGE_MAX) {
+    return res.status(400).json({ error: `一次最多選取 ${RANGE_MAX} 張，請縮小範圍` });
+  }
+
+  const { clause, params } = buildCodeFilters(req.query);
+  const rows = db.prepare(
+    `${CODE_SELECT} ${clause} ORDER BY k.id DESC LIMIT :limit OFFSET :offset`
+  ).all({ ...params, limit: to - from + 1, offset: from - 1 });
+
+  // 已兌換的不能再兌換，直接排除，並回報略過幾張讓前端提示
+  const selectable = rows.filter((r) => r.display_status !== 'redeemed');
+  res.json({
+    ids: selectable.map((r) => r.id),
+    found: rows.length,
+    skipped_redeemed: rows.length - selectable.length,
+  });
+});
+
 // ---- 兌換 / 取消兌換 ----
 app.post('/api/codes/:id/redeem', (req, res) => {
   const code = db.prepare('SELECT * FROM codes WHERE id = ?').get(req.params.id);
@@ -363,45 +419,85 @@ app.put('/api/codes/:id', (req, res) => {
   res.json(db.prepare(`${CODE_SELECT} WHERE k.id = ?`).get(code.id));
 });
 
-// 批次兌換：貼上多個禮券碼，一次標記到同一個活動
-app.post('/api/codes/redeem-bulk', (req, res) => {
-  const campaignName = String(req.body.campaign || '').trim();
-  if (!campaignName) return res.status(400).json({ error: '請填寫使用的活動名稱' });
+// 刪除單張禮券（限管理員）。回傳該張是否原本已兌換，供前端確認訊息。
+app.delete('/api/codes/:id', requireAdmin(db), (req, res) => {
+  const code = db.prepare('SELECT * FROM codes WHERE id = ?').get(req.params.id);
+  if (!code) return res.status(404).json({ error: '找不到這張禮券' });
+  db.prepare('DELETE FROM codes WHERE id = ?').run(code.id);
+  res.json({ ok: true, was_redeemed: code.status === 'redeemed' });
+});
 
+// 批次兌換：貼上多個禮券碼，一次標記到同一個活動。
+// 帶 dry_run 時只回報「會發生什麼事」而不寫入，讓前端能先跳出圈存警告。
+app.post('/api/codes/redeem-bulk', (req, res) => {
+  const dryRun = req.body.dry_run === true;
+  const campaignName = String(req.body.campaign || '').trim();
+  if (!dryRun && !campaignName) return res.status(400).json({ error: '請填寫使用的活動名稱' });
+
+  // 兩種指定方式：ids（列表勾選，可精準指到同碼的不同張）或 codes（批次兌換頁貼上的文字）
+  const rawIds = Array.isArray(req.body.ids) ? req.body.ids : [];
+  const ids = [...new Set(rawIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   const rawCodes = Array.isArray(req.body.codes) ? req.body.codes : [];
   const codes = [...new Set(rawCodes.map((c) => String(c).trim()).filter(Boolean))];
-  if (codes.length === 0) return res.status(400).json({ error: '請提供至少一個禮券碼' });
+  const useIds = ids.length > 0;
+  if (!useIds && codes.length === 0) return res.status(400).json({ error: '請提供至少一個禮券碼' });
 
   const redeemedBy = String(req.body.redeemed_by || '').trim();
   const note = String(req.body.note || '').trim();
 
-  const result = db.transaction(() => {
+  // 先分類：找不到 / 已兌換（略過）/ 可兌換。已圈存仍可兌換，只是要先警告。
+  const findByCode = db.prepare(`${CODE_SELECT} WHERE k.code = ?`);
+  const findById = db.prepare(`${CODE_SELECT} WHERE k.id = ?`);
+  const targets = useIds
+    ? ids.map((id) => [String(id), findById.get(id)])
+    : codes.map((c) => [c, findByCode.get(c)]);
+
+  const notFound = [];
+  const alreadyRedeemed = [];
+  const redeemable = [];
+  for (const [label, row] of targets) {
+    if (!row) notFound.push(label);
+    else if (row.display_status === 'redeemed') alreadyRedeemed.push(row.code);
+    else redeemable.push(row);
+  }
+  const earmarked = redeemable
+    .filter((r) => r.display_status === 'earmarked')
+    .map((r) => ({
+      id: r.id,
+      code: r.code,
+      earmark_start: r.earmark_start,
+      earmark_end: r.earmark_end,
+      campaign_name: r.campaign_name || '',
+    }));
+
+  if (dryRun) {
+    return res.json({
+      dry_run: true,
+      would_redeem_count: redeemable.length,
+      earmarked,
+      not_found: notFound,
+      already_redeemed: alreadyRedeemed,
+    });
+  }
+
+  const redeemed = db.transaction(() => {
     const campaignId = getOrCreateCampaign(db, campaignName);
-    const find = db.prepare('SELECT * FROM codes WHERE code = ?');
     const redeem = db.prepare(`
       UPDATE codes SET status = 'redeemed', campaign_id = ?, redeemed_by = ?, redeemed_note = ?, redeemed_at = ?
       WHERE id = ?
     `);
-    const redeemed = [];
-    const notFound = [];
-    const alreadyRedeemed = [];
-    for (const c of codes) {
-      const row = find.get(c);
-      if (!row) notFound.push(c);
-      else if (row.status === 'redeemed') alreadyRedeemed.push(c);
-      else {
-        redeem.run(campaignId, redeemedBy, note, nowIso(), row.id);
-        redeemed.push(c);
-      }
-    }
-    return { redeemed, notFound, alreadyRedeemed };
+    return redeemable.map((row) => {
+      redeem.run(campaignId, redeemedBy, note, nowIso(), row.id);
+      return row.code;
+    });
   })();
 
   res.json({
-    redeemed_count: result.redeemed.length,
-    redeemed: result.redeemed,
-    not_found: result.notFound,
-    already_redeemed: result.alreadyRedeemed,
+    redeemed_count: redeemed.length,
+    redeemed,
+    earmarked,
+    not_found: notFound,
+    already_redeemed: alreadyRedeemed,
   });
 });
 

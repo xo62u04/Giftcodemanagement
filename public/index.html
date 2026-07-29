@@ -34,15 +34,17 @@
         <h2>各活動使用狀況</h2>
         <button class="btn" id="btn-add-campaign">新增活動</button>
       </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>活動名稱</th><th>起迄時間</th><th>預計張數</th><th>已兌換張數</th>
-            <th>預算</th><th>已兌換成本</th><th>剩餘預算</th><th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="campaign-stats"><tr><td colspan="8" class="empty">尚無活動</td></tr></tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>活動名稱</th><th>起迄時間</th><th>預計張數</th><th>已兌換張數</th>
+              <th>預算</th><th>已兌換成本</th><th>剩餘預算</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="campaign-stats"><tr><td colspan="8" class="empty">尚無活動</td></tr></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- 禮券管理 -->
@@ -62,22 +64,44 @@
         </select>
         <select id="filter-batch"><option value="">全部批次</option></select>
         <select id="filter-campaign"><option value="">全部活動</option></select>
-        <button type="submit" class="btn">篩選</button>
+        <button type="button" class="btn btn-secondary" id="btn-reset-filter">清除條件</button>
         <button type="button" class="btn btn-secondary" id="btn-export">匯出 CSV</button>
       </form>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>禮券名稱</th><th>密碼/序號</th><th>兌換連結</th><th>面額</th><th>到期日</th><th>狀態</th><th>圈存起訖</th>
-            <th>使用活動</th><th>經手人</th><th>兌換時間</th><th>備註</th><th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="codes-body"><tr><td colspan="12" class="empty">載入中…</td></tr></tbody>
-      </table>
+      <div id="bulk-bar" class="bulk-bar">
+        <div class="bulk-range">
+          <span>選取第</span>
+          <input type="number" id="range-from" min="1" placeholder="1" inputmode="numeric">
+          <span>~</span>
+          <input type="number" id="range-to" min="1" placeholder="50" inputmode="numeric">
+          <span>號</span>
+          <button type="button" class="btn btn-secondary btn-small" id="btn-range-select">加入選取</button>
+        </div>
+        <span id="bulk-count">已選取 0 張</span>
+        <button type="button" class="btn" id="btn-bulk-redeem" disabled>統一標記兌換</button>
+        <button type="button" class="btn btn-secondary" id="btn-bulk-clear" disabled>清除選取</button>
+      </div>
+      <div class="pagination pagination-top">
+        <button type="button" class="btn btn-secondary" data-page="prev">上一頁</button>
+        <span class="page-info"></span>
+        <button type="button" class="btn btn-secondary" data-page="next">下一頁</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table wide">
+          <thead>
+            <tr>
+              <th class="col-seq">#</th>
+              <th>禮券名稱</th><th>密碼/序號</th><th>兌換連結</th><th>面額</th><th>到期日</th><th>狀態</th><th>圈存起訖</th>
+              <th>使用活動</th><th>經手人</th><th>兌換時間</th><th>備註</th><th>操作</th>
+              <th class="col-check"><input type="checkbox" id="check-all" title="全選本頁未兌換的禮券"></th>
+            </tr>
+          </thead>
+          <tbody id="codes-body"><tr><td colspan="14" class="empty">載入中…</td></tr></tbody>
+        </table>
+      </div>
       <div class="pagination">
-        <button class="btn btn-secondary" id="btn-prev">上一頁</button>
-        <span id="page-info"></span>
-        <button class="btn btn-secondary" id="btn-next">下一頁</button>
+        <button type="button" class="btn btn-secondary" data-page="prev">上一頁</button>
+        <span class="page-info"></span>
+        <button type="button" class="btn btn-secondary" data-page="next">下一頁</button>
       </div>
     </section>
 
@@ -131,7 +155,7 @@
         <h2>批次標記兌換</h2>
         <p class="hint">貼上多個禮券碼（每行一個，或以逗號分隔），一次標記為同一個活動使用。</p>
         <label>禮券碼清單 <textarea id="bulk-codes" rows="8" required placeholder="ABC-001&#10;ABC-002&#10;ABC-003"></textarea></label>
-        <label>使用活動 <input type="text" id="bulk-campaign" list="campaign-list" required placeholder="例：週年慶抽獎"></label>
+        <label>使用活動 <input type="text" id="bulk-campaign" class="campaign-input" required placeholder="點選或輸入活動名稱"></label>
         <label>經手人（選填） <input type="text" id="bulk-by"></label>
         <label>備註（選填） <input type="text" id="bulk-note"></label>
         <button type="submit" class="btn">批次兌換</button>
@@ -142,12 +166,14 @@
     <!-- 上傳紀錄 -->
     <section id="tab-batches" class="tab">
       <h2>上傳紀錄</h2>
-      <table class="data-table">
-        <thead>
-          <tr><th>#</th><th>檔名</th><th>上傳人</th><th>備註</th><th>檔內筆數</th><th>成功匯入</th><th>重複略過</th><th>上傳時間</th></tr>
-        </thead>
-        <tbody id="batches-body"><tr><td colspan="8" class="empty">載入中…</td></tr></tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>#</th><th>檔名</th><th>上傳人</th><th>備註</th><th>檔內筆數</th><th>成功匯入</th><th>重複略過</th><th>已兌換</th><th>上傳時間</th><th>操作</th></tr>
+          </thead>
+          <tbody id="batches-body"><tr><td colspan="10" class="empty">載入中…</td></tr></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="tab-staff" class="tab">
@@ -155,12 +181,14 @@
         <h2>同仁管理</h2>
         <button class="btn" id="btn-add-staff">新增同仁</button>
       </div>
-      <table class="data-table">
-        <thead>
-          <tr><th>姓名</th><th>部門</th><th>員工編號</th><th>Windows 帳號</th><th>操作</th></tr>
-        </thead>
-        <tbody id="staff-body"><tr><td colspan="5" class="empty">讀取中...</td></tr></tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>姓名</th><th>部門</th><th>員工編號</th><th>Windows 帳號</th><th>管理員</th><th>操作</th></tr>
+          </thead>
+          <tbody id="staff-body"><tr><td colspan="6" class="empty">讀取中...</td></tr></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
@@ -211,14 +239,36 @@
   <!-- 兌換對話框 -->
   <dialog id="redeem-dialog">
     <form id="redeem-form" method="dialog" class="card-form">
-      <h2>標記兌換</h2>
-      <p>禮券碼：<strong id="redeem-code-label"></strong></p>
-      <label>使用活動 <input type="text" id="redeem-campaign" list="campaign-list" required placeholder="例：週年慶抽獎"></label>
+      <h2 id="redeem-dialog-title">標記兌換</h2>
+      <p id="redeem-target-line">禮券碼：<strong id="redeem-code-label"></strong></p>
+      <label>使用活動 <input type="text" id="redeem-campaign" class="campaign-input" required placeholder="點選或輸入活動名稱"></label>
       <label>經手人（選填） <input type="text" id="redeem-by"></label>
       <label>備註（選填） <input type="text" id="redeem-note"></label>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="redeem-cancel">取消</button>
         <button type="submit" class="btn">確認兌換</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 圈存警告：提醒但不阻擋 -->
+  <dialog id="earmark-warn-dialog" class="wide-dialog">
+    <form method="dialog" class="card-form">
+      <h2>⚠️ 這批有已圈存的禮券</h2>
+      <p class="hint">
+        以下 <strong id="earmark-warn-count"></strong> 張目前是<strong>已圈存</strong>——已經配給某個活動、圈存期間還沒結束。
+        標記兌換後就不能再留給原本的活動使用，確認要繼續嗎？
+      </p>
+      <div class="table-wrap warn-list">
+        <table class="data-table">
+          <thead><tr><th>密碼/序號</th><th>圈存起訖</th><th>原活動</th></tr></thead>
+          <tbody id="earmark-warn-body"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="earmark-warn-more"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="earmark-warn-cancel">取消</button>
+        <button type="button" class="btn btn-warn" id="earmark-warn-confirm">仍要標記兌換</button>
       </div>
     </form>
   </dialog>
@@ -247,6 +297,7 @@
       <label>部門 <input type="text" id="staff-dept" placeholder="例如：行銷部"></label>
       <label>員工編號 <input type="text" id="staff-empid" placeholder="例如：A99393"></label>
       <label>Windows 帳號 <input type="text" id="staff-winuser" placeholder="例如：a99393"></label>
+      <label class="checkbox-label"><input type="checkbox" id="staff-is-admin"> 設為管理員（可刪除禮券／批次）</label>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="staff-cancel">取消</button>
         <button type="submit" class="btn">儲存</button>
@@ -254,7 +305,6 @@
     </form>
   </dialog>
 
-  <datalist id="campaign-list"></datalist>
   <div id="toast" class="toast hidden"></div>
 
   <script src="app.js"></script>

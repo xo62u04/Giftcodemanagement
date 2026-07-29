@@ -100,6 +100,7 @@ function applySchema(db) {
 
   // 批次與活動的欄位升級（保留既有作法）
   addColumnIfMissing(db, 'batches', 'gift_name', "ALTER TABLE batches ADD COLUMN gift_name TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'staff', 'is_admin', 'ALTER TABLE staff ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'campaigns', 'planned_count', 'ALTER TABLE campaigns ADD COLUMN planned_count INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'campaigns', 'budget', 'ALTER TABLE campaigns ADD COLUMN budget REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'campaigns', 'start_date', "ALTER TABLE campaigns ADD COLUMN start_date TEXT NOT NULL DEFAULT ''");

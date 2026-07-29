@@ -4,6 +4,9 @@ const $ = (sel) => document.querySelector(sel);
 
 const state = { page: 1, pageSize: 50, total: 0 };
 
+// 列表上勾選的禮券 id（跨頁保留，直到成功兌換或按「清除選取」）
+const selectedCodeIds = new Set();
+
 // ---- 共用 ----
 async function api(url, options = {}) {
   const res = await fetch(url, options);
@@ -40,10 +43,13 @@ let currentUser = null;
 async function loadCurrentUser() {
   try {
     currentUser = await api('/api/current-user');
+    const adminTag = currentUser.is_admin ? '（管理員）' : '';
     const label = currentUser.staff
-      ? `${currentUser.staff.name} (${currentUser.staff.employee_id || currentUser.windows_username})`
+      ? `${currentUser.staff.name}${adminTag} (${currentUser.staff.employee_id || currentUser.windows_username})`
       : `Windows: ${currentUser.windows_username || '-'}`;
     $('#current-user-badge').textContent = label;
+    // 依權限顯示/隱藏破壞性動作按鈕（含 zero-admin 引導）
+    document.body.classList.toggle('is-admin', Boolean(currentUser.can_admin));
     autoFillUserFields();
   } catch {
     $('#current-user-badge').textContent = '使用者讀取失敗';
@@ -100,7 +106,7 @@ async function loadStats() {
           <td>${c.budget ? fmt(c.budget) : '–'}</td>
           <td>${fmt(c.cost || 0)}</td>
           <td>${c.budget ? fmt(c.remaining) : '–'}</td>
-          <td><button class="btn btn-small" data-action="edit-campaign" data-id="${c.id}">編輯</button></td>
+          <td class="actions-cell"><button class="btn btn-small" data-action="edit-campaign" data-id="${c.id}">編輯</button></td>
         </tr>`;
       }).join('')
       : '<tr><td colspan="8" class="empty">尚無活動</td></tr>';
@@ -177,22 +183,31 @@ function currentFilters() {
   return params;
 }
 
+// 即時篩選會連續發請求，用序號擋掉比較慢回來的舊結果
+let codesRequestSeq = 0;
+
 async function loadCodes() {
   const params = currentFilters();
   params.set('page', state.page);
   params.set('page_size', state.pageSize);
+  const seq = ++codesRequestSeq;
   try {
     const data = await api(`/api/codes?${params}`);
+    if (seq !== codesRequestSeq) return; // 已有更新的查詢，丟棄這次結果
     state.total = data.total;
     state.items = data.items;
     const body = $('#codes-body');
+    const firstSeq = (data.page - 1) * state.pageSize;
     body.innerHTML = data.items.length
-      ? data.items.map(renderCodeRow).join('')
-      : '<tr><td colspan="12" class="empty">沒有符合條件的禮券</td></tr>';
+      ? data.items.map((item, i) => renderCodeRow(item, firstSeq + i + 1)).join('')
+      : '<tr><td colspan="14" class="empty">沒有符合條件的禮券</td></tr>';
     const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
-    $('#page-info').textContent = `第 ${data.page} / ${totalPages} 頁（共 ${data.total} 筆）`;
-    $('#btn-prev').disabled = data.page <= 1;
-    $('#btn-next').disabled = data.page >= totalPages;
+    // 表格上下各有一組分頁列，一起更新
+    const label = `第 ${data.page} / ${totalPages} 頁（共 ${data.total} 筆）`;
+    document.querySelectorAll('#tab-codes .page-info').forEach((el) => { el.textContent = label; });
+    document.querySelectorAll('#tab-codes [data-page="prev"]').forEach((b) => { b.disabled = data.page <= 1; });
+    document.querySelectorAll('#tab-codes [data-page="next"]').forEach((b) => { b.disabled = data.page >= totalPages; });
+    updateBulkBar();
   } catch (err) {
     toast(err.message, true);
   }
@@ -204,13 +219,14 @@ const STATUS_BADGE = {
   available: '<span class="badge badge-available">未兌換</span>',
 };
 
-function renderCodeRow(item) {
+function renderCodeRow(item, seq) {
   const status = item.display_status || item.status;
   const statusBadge = STATUS_BADGE[status] || STATUS_BADGE.available;
   const redeemAction = status === 'redeemed'
     ? `<button class="btn btn-small btn-danger" data-action="unredeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">取消兌換</button>`
     : `<button class="btn btn-small" data-action="redeem" data-id="${item.id}" data-code="${escapeHtml(item.code)}">標記兌換</button>`;
-  const action = `<button class="btn btn-small btn-secondary" data-action="edit-code" data-id="${item.id}">編輯</button> ${redeemAction}`;
+  const deleteAction = `<button class="btn btn-small btn-danger admin-only" data-action="delete-code" data-id="${item.id}" data-code="${escapeHtml(item.code)}" data-redeemed="${status === 'redeemed' ? 1 : 0}">刪除</button>`;
+  const action = `<button class="btn btn-small btn-secondary" data-action="edit-code" data-id="${item.id}">編輯</button>${redeemAction}${deleteAction}`;
   const urlCell = item.redeem_url
     ? `<a href="${escapeHtml(item.redeem_url)}" target="_blank" rel="noopener" class="redeem-link" title="${escapeHtml(item.redeem_url)}">開啟連結</a>`
     : '';
@@ -220,7 +236,12 @@ function renderCodeRow(item) {
   } else if (status === 'earmarked') {
     earmarkCell = '<span class="muted">無期限</span>';
   }
+  // 已兌換的不給勾，避免全選時把它們也算進批次兌換
+  const checkCell = status === 'redeemed'
+    ? '<td class="col-check"></td>'
+    : `<td class="col-check"><input type="checkbox" class="row-check" data-id="${item.id}"${selectedCodeIds.has(String(item.id)) ? ' checked' : ''}></td>`;
   return `<tr>
+    <td class="col-seq muted">${seq}</td>
     <td>${escapeHtml(item.gift_name || '')}</td>
     <td><code>${escapeHtml(item.code)}</code></td>
     <td>${urlCell}</td>
@@ -232,17 +253,153 @@ function renderCodeRow(item) {
     <td>${escapeHtml(item.redeemed_by)}</td>
     <td>${formatTime(item.redeemed_at)}</td>
     <td>${escapeHtml(item.redeemed_note)}</td>
-    <td>${action}</td>
+    <td class="actions-cell">${action}</td>
+    ${checkCell}
   </tr>`;
+}
+
+// ---- 勾選與批次兌換 ----
+function updateBulkBar() {
+  const count = selectedCodeIds.size;
+  $('#bulk-count').textContent = `已選取 ${count} 張`;
+  $('#bulk-count').classList.toggle('muted', count === 0);
+  $('#btn-bulk-redeem').disabled = count === 0;
+  $('#btn-bulk-clear').disabled = count === 0;
+
+  const boxes = [...document.querySelectorAll('#codes-body .row-check')];
+  const checked = boxes.filter((b) => b.checked).length;
+  const all = $('#check-all');
+  all.checked = boxes.length > 0 && checked === boxes.length;
+  all.indeterminate = checked > 0 && checked < boxes.length;
+}
+
+$('#codes-body').addEventListener('change', (e) => {
+  const box = e.target.closest('.row-check');
+  if (!box) return;
+  if (box.checked) selectedCodeIds.add(box.dataset.id);
+  else selectedCodeIds.delete(box.dataset.id);
+  updateBulkBar();
+});
+
+$('#check-all').addEventListener('change', (e) => {
+  document.querySelectorAll('#codes-body .row-check').forEach((box) => {
+    box.checked = e.target.checked;
+    if (box.checked) selectedCodeIds.add(box.dataset.id);
+    else selectedCodeIds.delete(box.dataset.id);
+  });
+  updateBulkBar();
+});
+
+function clearSelection() {
+  selectedCodeIds.clear();
+  document.querySelectorAll('#codes-body .row-check').forEach((box) => { box.checked = false; });
+  updateBulkBar();
+}
+
+$('#btn-bulk-clear').addEventListener('click', clearSelection);
+
+// 打「第 N ~ M 號」直接跨頁選取，不用一頁一頁翻
+async function selectSeqRange() {
+  const from = Number($('#range-from').value);
+  const to = Number($('#range-to').value);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < 1) {
+    return toast('請輸入起訖流水號', true);
+  }
+  if (to < from) return toast('結束流水號不可小於開始流水號', true);
+
+  const params = currentFilters();
+  params.set('from', from);
+  params.set('to', to);
+  try {
+    const r = await api(`/api/codes/ids?${params}`);
+    r.ids.forEach((id) => selectedCodeIds.add(String(id)));
+    // 目前這一頁的勾選框跟著同步
+    document.querySelectorAll('#codes-body .row-check').forEach((box) => {
+      box.checked = selectedCodeIds.has(box.dataset.id);
+    });
+    updateBulkBar();
+    const parts = [`已加入 ${r.ids.length} 張`];
+    if (r.skipped_redeemed) parts.push(`略過已兌換 ${r.skipped_redeemed} 張`);
+    if (r.found < to - from + 1) parts.push(`第 ${from + r.found} 號之後已無資料`);
+    toast(parts.join('，'));
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('#btn-range-select').addEventListener('click', selectSeqRange);
+['#range-from', '#range-to'].forEach((sel) => {
+  $(sel).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); selectSeqRange(); }
+  });
+});
+
+$('#btn-bulk-redeem').addEventListener('click', async () => {
+  if (selectedCodeIds.size === 0) return;
+
+  // 先問後端這批裡有沒有已圈存的，有就先警告（可以繼續）
+  try {
+    const check = await dryRunBulk({ ids: [...selectedCodeIds].map(Number) });
+    if (!await confirmEarmarked(check.earmarked)) return;
+  } catch (err) {
+    return toast(err.message, true);
+  }
+
+  redeemTargetId = null;
+  $('#redeem-dialog-title').textContent = '統一標記兌換';
+  $('#redeem-target-line').innerHTML = `將把勾選的 <strong>${selectedCodeIds.size}</strong> 張禮券標記為同一個活動的兌換。`;
+  $('#redeem-form').reset();
+  autoFillUserFields();
+  loadCampaignList();
+  $('#redeem-dialog').showModal();
+});
+
+// 篩選條件一改就直接查，不必等全部選完再按按鈕
+function applyFilters() {
+  state.page = 1;
+  loadCodes();
 }
 
 $('#filter-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  state.page = 1;
-  loadCodes();
+  applyFilters();
 });
-$('#btn-prev').addEventListener('click', () => { state.page--; loadCodes(); });
-$('#btn-next').addEventListener('click', () => { state.page++; loadCodes(); });
+
+['#filter-status', '#filter-batch', '#filter-campaign'].forEach((sel) => {
+  $(sel).addEventListener('change', applyFilters);
+});
+
+// 搜尋框邊打邊查（停止輸入 300ms 後才送出，避免每個按鍵都打 API）
+let filterQueryTimer;
+$('#filter-q').addEventListener('input', () => {
+  clearTimeout(filterQueryTimer);
+  filterQueryTimer = setTimeout(applyFilters, 300);
+});
+$('#filter-q').addEventListener('search', () => {
+  clearTimeout(filterQueryTimer);
+  applyFilters();
+});
+
+$('#btn-reset-filter').addEventListener('click', () => {
+  clearTimeout(filterQueryTimer);
+  $('#filter-q').value = '';
+  $('#filter-status').value = '';
+  $('#filter-batch').value = '';
+  $('#filter-campaign').value = '';
+  applyFilters();
+});
+// 換頁後捲回列表最上方，不用自己滾滑鼠回去
+async function goToPage(page) {
+  state.page = page;
+  await loadCodes();
+  window.scrollTo(0, 0);
+}
+
+document.querySelectorAll('#tab-codes [data-page]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    goToPage(btn.dataset.page === 'next' ? state.page + 1 : state.page - 1);
+  });
+});
 $('#btn-export').addEventListener('click', () => {
   window.location.href = `/api/export.csv?${currentFilters()}`;
 });
@@ -265,15 +422,180 @@ function fillSelect(select, placeholder, pairs) {
   select.value = current;
 }
 
+// ---- 活動選單（可打字也可下拉選，允許輸入不存在的新活動）----
+let campaignNames = [];
+
 function fillCampaignDatalist(campaigns) {
-  $('#campaign-list').innerHTML = campaigns
-    .map((c) => `<option value="${escapeHtml(c.name)}"></option>`).join('');
+  campaignNames = campaigns.map((c) => c.name);
 }
+
+/*
+ * 把一般 <input> 升級成可搜尋的下拉選單。
+ * 沒有引入 select2：這個專案沒有打包流程，而且是內網離線環境載不到 CDN，
+ * 所以用原生實作同樣的操作方式——點開看全部、打字即時篩選、上下鍵＋Enter 選取。
+ */
+function setupCombo(input, getOptions) {
+  const wrap = document.createElement('div');
+  wrap.className = 'combo';
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  input.classList.add('combo-input');
+  input.setAttribute('autocomplete', 'off');
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'combo-toggle';
+  toggle.tabIndex = -1;
+  toggle.setAttribute('aria-label', '展開活動清單');
+  wrap.appendChild(toggle);
+
+  const list = document.createElement('ul');
+  list.className = 'combo-list hidden';
+  list.setAttribute('role', 'listbox');
+  wrap.appendChild(list);
+
+  let items = [];
+  let active = -1;
+
+  function render(filterText) {
+    const q = filterText.trim().toLowerCase();
+    items = getOptions().filter((name) => !q || name.toLowerCase().includes(q));
+    active = -1;
+    list.innerHTML = items.length
+      ? items.map((name) => `<li role="option" class="combo-item">${escapeHtml(name)}</li>`).join('')
+      : '<li class="combo-empty">查無相符的活動，直接輸入即可新增</li>';
+  }
+
+  function open(filterText = '') {
+    render(filterText);
+    list.classList.remove('hidden');
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  function close() {
+    list.classList.add('hidden');
+    input.setAttribute('aria-expanded', 'false');
+    active = -1;
+  }
+
+  function highlight(next) {
+    if (!items.length) return;
+    active = (next + items.length) % items.length;
+    [...list.children].forEach((li, i) => li.classList.toggle('active', i === active));
+    list.children[active]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function choose(name) {
+    input.value = name;
+    close();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  input.addEventListener('focus', () => open(''));
+  input.addEventListener('input', () => open(input.value));
+  toggle.addEventListener('click', () => {
+    if (list.classList.contains('hidden')) { open(''); input.focus(); } else close();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (list.classList.contains('hidden')) open(input.value);
+      else highlight(active + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlight(active - 1);
+    } else if (e.key === 'Enter') {
+      // 只有正在選清單裡的項目時才攔截，否則讓表單照常送出
+      if (!list.classList.contains('hidden') && active >= 0) {
+        e.preventDefault();
+        choose(items[active]);
+      } else {
+        close();
+      }
+    } else if (e.key === 'Escape') {
+      // 清單開著時 Esc 只收清單，不要順便把整個對話框關掉
+      if (!list.classList.contains('hidden')) {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    }
+  });
+
+  // 用 mousedown 才不會先觸發 blur 導致清單關閉、點不到項目
+  list.addEventListener('mousedown', (e) => {
+    const li = e.target.closest('.combo-item');
+    if (!li) return;
+    e.preventDefault();
+    choose(li.textContent);
+  });
+
+  input.addEventListener('blur', () => setTimeout(close, 0));
+}
+
+document.querySelectorAll('.campaign-input').forEach((input) => {
+  setupCombo(input, () => campaignNames);
+});
 
 async function loadCampaignList() {
   try {
     fillCampaignDatalist(await api('/api/campaigns'));
   } catch { /* datalist 只是輔助，失敗可忽略 */ }
+}
+
+// ---- 圈存警告（提醒，不阻擋）----
+const WARN_LIST_LIMIT = 20;
+let earmarkWarnResolve = null;
+
+// 顯示警告並等使用者決定；回傳 true 代表照樣兌換
+function confirmEarmarked(items) {
+  if (!items.length) return Promise.resolve(true);
+
+  $('#earmark-warn-count').textContent = items.length;
+  const shown = items.slice(0, WARN_LIST_LIMIT);
+  $('#earmark-warn-body').innerHTML = shown.map((it) => {
+    const range = (it.earmark_start || it.earmark_end)
+      ? `${escapeHtml(it.earmark_start || '?')} ~ ${escapeHtml(it.earmark_end || '?')}`
+      : '<span class="muted">無期限</span>';
+    return `<tr>
+      <td><code>${escapeHtml(it.code)}</code></td>
+      <td style="white-space:nowrap">${range}</td>
+      <td>${escapeHtml(it.campaign_name || '')}</td>
+    </tr>`;
+  }).join('');
+  $('#earmark-warn-more').textContent = items.length > shown.length
+    ? `（只列出前 ${shown.length} 張，其餘 ${items.length - shown.length} 張未列出）`
+    : '';
+
+  $('#earmark-warn-dialog').showModal();
+  return new Promise((resolve) => { earmarkWarnResolve = resolve; });
+}
+
+function closeEarmarkWarn(result) {
+  // 先取走 resolver 再關，避免 close 事件重入時把答案覆蓋成取消
+  const resolve = earmarkWarnResolve;
+  earmarkWarnResolve = null;
+  $('#earmark-warn-dialog').close();
+  resolve?.(result);
+}
+
+$('#earmark-warn-cancel').addEventListener('click', () => closeEarmarkWarn(false));
+$('#earmark-warn-confirm').addEventListener('click', () => closeEarmarkWarn(true));
+// 按 Esc 或點外面關掉，一律視為取消
+$('#earmark-warn-dialog').addEventListener('close', () => {
+  if (earmarkWarnResolve) closeEarmarkWarn(false);
+});
+
+// 問後端這批會發生什麼事（不寫入），用來取得其中的已圈存清單
+async function dryRunBulk(payload) {
+  return api('/api/codes/redeem-bulk', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, dry_run: true }),
+  });
 }
 
 // ---- 兌換操作 ----
@@ -283,7 +605,13 @@ $('#codes-body').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   if (btn.dataset.action === 'redeem') {
+    const item = (state.items || []).find((i) => String(i.id) === btn.dataset.id);
+    if (item && (item.display_status || item.status) === 'earmarked') {
+      if (!await confirmEarmarked([item])) return;
+    }
     redeemTargetId = btn.dataset.id;
+    $('#redeem-dialog-title').textContent = '標記兌換';
+    $('#redeem-target-line').innerHTML = '禮券碼：<strong id="redeem-code-label"></strong>';
     $('#redeem-code-label').textContent = btn.dataset.code;
     $('#redeem-form').reset();
     autoFillUserFields();
@@ -310,6 +638,19 @@ $('#codes-body').addEventListener('click', async (e) => {
     $('#code-edit-earmark-start').value = item.earmark_start || '';
     $('#code-edit-earmark-end').value = item.earmark_end || '';
     $('#code-dialog').showModal();
+  } else if (btn.dataset.action === 'delete-code') {
+    const isRedeemed = btn.dataset.redeemed === '1';
+    const msg = isRedeemed
+      ? `「${btn.dataset.code}」已經被兌換，確定要刪除嗎？此動作無法復原。`
+      : `確定要刪除「${btn.dataset.code}」嗎？此動作無法復原。`;
+    if (!confirm(msg)) return;
+    try {
+      await api(`/api/codes/${btn.dataset.id}`, { method: 'DELETE' });
+      toast('已刪除禮券');
+      loadCodes();
+    } catch (err) {
+      toast(err.message, true);
+    }
   }
 });
 
@@ -344,18 +685,31 @@ $('#redeem-cancel').addEventListener('click', () => $('#redeem-dialog').close())
 
 $('#redeem-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const payload = {
+    campaign: $('#redeem-campaign').value,
+    redeemed_by: $('#redeem-by').value,
+    note: $('#redeem-note').value,
+  };
   try {
-    await api(`/api/codes/${redeemTargetId}/redeem`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        campaign: $('#redeem-campaign').value,
-        redeemed_by: $('#redeem-by').value,
-        note: $('#redeem-note').value,
-      }),
-    });
-    $('#redeem-dialog').close();
-    toast('兌換成功');
+    if (redeemTargetId) {
+      await api(`/api/codes/${redeemTargetId}/redeem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      $('#redeem-dialog').close();
+      toast('兌換成功');
+    } else {
+      const r = await api('/api/codes/redeem-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, ids: [...selectedCodeIds].map(Number) }),
+      });
+      $('#redeem-dialog').close();
+      const skipped = r.already_redeemed.length + r.not_found.length;
+      toast(`已兌換 ${r.redeemed_count} 張${skipped ? `，略過 ${skipped} 張（已兌換或已不存在）` : ''}`);
+      clearSelection();
+    }
     loadCodes();
   } catch (err) {
     toast(err.message, true);
@@ -420,6 +774,9 @@ $('#bulk-form').addEventListener('submit', async (e) => {
   const codes = $('#bulk-codes').value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
   const box = $('#bulk-result');
   try {
+    const check = await dryRunBulk({ codes });
+    if (!await confirmEarmarked(check.earmarked)) return;
+
     const r = await api('/api/codes/redeem-bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -624,13 +981,34 @@ async function loadBatches() {
           <td>${b.total_count}</td>
           <td>${b.imported_count}</td>
           <td>${b.duplicate_count}</td>
+          <td>${b.redeemed_count || 0}</td>
           <td>${formatTime(b.created_at)}</td>
+          <td><button class="btn btn-small btn-danger admin-only" data-action="delete-batch"
+                data-id="${b.id}" data-filename="${escapeHtml(b.filename)}"
+                data-count="${b.code_count || 0}" data-redeemed="${b.redeemed_count || 0}">刪除整批</button></td>
         </tr>`).join('')
-      : '<tr><td colspan="8" class="empty">尚無上傳紀錄</td></tr>';
+      : '<tr><td colspan="10" class="empty">尚無上傳紀錄</td></tr>';
   } catch (err) {
     toast(err.message, true);
   }
 }
+
+$('#batches-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action="delete-batch"]');
+  if (!btn) return;
+  const count = Number(btn.dataset.count) || 0;
+  const redeemed = Number(btn.dataset.redeemed) || 0;
+  let msg = `確定要刪除批次「${btn.dataset.filename}」嗎？\n將一併刪除該批 ${count} 張禮券，此動作無法復原。`;
+  if (redeemed > 0) msg += `\n⚠️ 其中 ${redeemed} 張已兌換！`;
+  if (!confirm(msg)) return;
+  try {
+    const r = await api(`/api/batches/${btn.dataset.id}`, { method: 'DELETE' });
+    toast(`已刪除批次，共移除 ${r.deleted_codes} 張禮券`);
+    loadBatches();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
 
 // ---- 同仁管理 ----
 async function loadStaff() {
@@ -643,12 +1021,12 @@ async function loadStaff() {
           <td>${escapeHtml(s.department)}</td>
           <td>${escapeHtml(s.employee_id)}</td>
           <td>${escapeHtml(s.windows_username)}</td>
-          <td>
-            <button class="btn btn-small" data-action="edit-staff" data-id="${s.id}">編輯</button>
-            <button class="btn btn-small btn-danger" data-action="del-staff" data-id="${s.id}" data-name="${escapeHtml(s.name)}">刪除</button>
+          <td>${s.is_admin ? '<span class="badge badge-admin">管理員</span>' : ''}</td>
+          <td class="actions-cell">
+            <button class="btn btn-small" data-action="edit-staff" data-id="${s.id}">編輯</button><button class="btn btn-small btn-danger" data-action="del-staff" data-id="${s.id}" data-name="${escapeHtml(s.name)}">刪除</button>
           </td>
         </tr>`).join('')
-      : '<tr><td colspan="5" class="empty">尚無同仁資料</td></tr>';
+      : '<tr><td colspan="6" class="empty">尚無同仁資料</td></tr>';
   } catch (err) {
     toast(err.message, true);
   }
@@ -658,6 +1036,7 @@ $('#btn-add-staff').addEventListener('click', () => {
   $('#staff-dialog-title').textContent = '新增同仁';
   $('#staff-id').value = '';
   $('#staff-form').reset();
+  $('#staff-is-admin').checked = false;
   $('#staff-dialog').showModal();
 });
 
@@ -677,6 +1056,7 @@ $('#staff-body').addEventListener('click', async (e) => {
       $('#staff-dept').value = item.department;
       $('#staff-empid').value = item.employee_id;
       $('#staff-winuser').value = item.windows_username;
+      $('#staff-is-admin').checked = Boolean(item.is_admin);
       $('#staff-dialog').showModal();
     } catch (err) {
       toast(err.message, true);
@@ -702,6 +1082,7 @@ $('#staff-form').addEventListener('submit', async (e) => {
     department: $('#staff-dept').value,
     employee_id: $('#staff-empid').value,
     windows_username: $('#staff-winuser').value,
+    is_admin: $('#staff-is-admin').checked,
   };
   try {
     await api(id ? `/api/staff/${id}` : '/api/staff', {
