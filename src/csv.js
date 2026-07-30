@@ -128,14 +128,16 @@ function parseGiftcodeCsv(buffer) {
     dataStart = looksLikeHeader ? 1 : 0;
   }
 
-  const cell = (rec, idx) => (idx !== -1 ? String(rec[idx] || '').trim() : '');
+  // 去掉 Excel「文字前置符」殘留的開頭單引號（例：'YAC38 → YAC38）
+  const stripTextPrefix = (s) => s.replace(/^'/, '');
+  const cell = (rec, idx) => (idx !== -1 ? stripTextPrefix(String(rec[idx] || '').trim()) : '');
 
   const rows = [];
   const errors = [];
   const seen = new Set();
   for (let i = dataStart; i < records.length; i++) {
     const rec = records[i];
-    const code = String(rec[codeIdx] || '').trim();
+    const code = stripTextPrefix(String(rec[codeIdx] || '').trim());
     if (!code) {
       errors.push(`第 ${i + 1} 列：禮券碼為空，已略過`);
       continue;

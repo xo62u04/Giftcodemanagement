@@ -60,6 +60,16 @@ function migrateCodesTable(db) {
   db.pragma(`foreign_keys = ${fkWasOn ? 'ON' : 'OFF'}`);
 }
 
+// 清掉既有資料中 Excel「文字前置符」殘留的開頭單引號（例：'YAC38 → YAC38）。
+// 只處理開頭是單引號的列，跑過即無可再改，故具冪等性。
+function stripLeadingApostrophes(db) {
+  if (!hasColumn(db, 'codes', 'code')) return;
+  const cols = ['code', 'redeem_url', 'gift_name', 'face_value', 'expires_at', 'earmark_start', 'earmark_end', 'redeemed_by'];
+  for (const c of cols) {
+    db.exec(`UPDATE codes SET ${c} = substr(${c}, 2) WHERE ${c} LIKE '''%'`);
+  }
+}
+
 function applySchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS batches (
@@ -108,6 +118,8 @@ function applySchema(db) {
 
   // codes 表升級（需在批次 gift_name 補上之後）
   migrateCodesTable(db);
+
+  stripLeadingApostrophes(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status);

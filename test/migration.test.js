@@ -77,6 +77,15 @@ test('applySchema 之後 code 不再唯一、可接受 earmarked 狀態', () => 
   assert.strictEqual(n, 2);
 });
 
+test('applySchema 清除既有資料開頭的 Excel 單引號', () => {
+  const db = buildOldDb();
+  applySchema(db); // 先升級到新結構
+  db.prepare("INSERT INTO codes (code, batch_id, redeem_url) VALUES (?, 1, ?)").run("'APOS1", 'http://x/apos');
+  applySchema(db); // 再跑一次 → 清理
+  const row = db.prepare("SELECT code FROM codes WHERE redeem_url = 'http://x/apos'").get();
+  assert.strictEqual(row.code, 'APOS1');
+});
+
 test('applySchema 具冪等性：重覆執行不再重建', () => {
   const db = buildOldDb();
   applySchema(db);

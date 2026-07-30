@@ -366,6 +366,17 @@ test('單張編輯：找不到禮券回傳 404，空密碼回傳 400', async () 
   assert.strictEqual(empty.status, 400);
 });
 
+// ---- Excel 文字前置符：去除密碼開頭的單引號 ----
+test('上傳時去除密碼開頭的 Excel 單引號（文字前置符）', async () => {
+  await upload([
+    NEW_HEADER,
+    "券,https://ibongift.com/Tickets/APOS1,'YAC38,50,,,,,未兌換",
+  ].join('\n'), 'apostrophe.csv');
+  const list = await (await fetch(`${base}/api/codes?q=YAC38`)).json();
+  assert.strictEqual(list.total, 1);
+  assert.strictEqual(list.items[0].code, 'YAC38', '密碼開頭的單引號應被去除');
+});
+
 // ---- 範本含新欄位 ----
 test('範本包含兌換連結等新欄位', async () => {
   const buf = Buffer.from(await (await fetch(`${base}/api/template.csv`)).arrayBuffer());
