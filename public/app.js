@@ -422,15 +422,19 @@ const TOGGLE_COLS = [
   { key: 'expires', label: '到期日' },
   { key: 'earmark', label: '圈存起訖' },
   { key: 'campaign', label: '使用活動' },
-  { key: 'recipient', label: '購買人' },
+  { key: 'recipient', label: '兌換人' },
   { key: 'sendstatus', label: '發送狀態' },
   { key: 'handler', label: '經手人' },
   { key: 'redeemedat', label: '兌換時間' },
   { key: 'note', label: '備註' },
 ];
 const COL_STORE = 'egift.hiddenCols';
-let hiddenCols = new Set();
-try { hiddenCols = new Set(JSON.parse(localStorage.getItem(COL_STORE) || '[]')); } catch { /* ignore */ }
+// 首次使用預設隱藏「經手人」（內部欄，報帳不需要）；使用者調整過就以其設定為準
+let hiddenCols = new Set(['handler']);
+const _storedCols = localStorage.getItem(COL_STORE);
+if (_storedCols !== null) {
+  try { hiddenCols = new Set(JSON.parse(_storedCols)); } catch { /* 用預設 */ }
+}
 const colStyle = document.createElement('style');
 document.head.appendChild(colStyle);
 function applyColVisibility() {

@@ -35,7 +35,7 @@ const SIGNOFF_FIELDS = {
   send_status: ['發送狀態'],
   status_updated_at: ['狀態更新時間'],
   account_no: ['期貨帳號', '帳號'],
-  recipient_name: ['購買人姓名', '購買人', '客戶姓名', '姓名'],
+  recipient_name: ['購買人姓名', '購買人', '兌換人', '兌換人姓名', '客戶姓名', '姓名'],
   national_id: ['身份證字號', '身分證字號', '身份證', '身分證'],
   address: ['戶籍地址', '地址'],
   unit: ['單位'],
