@@ -5,6 +5,12 @@
 
 const nowIso = () => new Date().toISOString();
 
+// 簽收表欄位（客戶與發送資訊）——上傳時一併寫入
+const SIGNOFF_COLS = [
+  'send_method', 'recipient_mobile', 'recipient_email', 'sent_at', 'send_status',
+  'status_updated_at', 'account_no', 'recipient_name', 'national_id', 'address', 'unit', 'sales_rep',
+];
+
 function getOrCreateCampaign(db, name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return null;
@@ -24,10 +30,12 @@ function importRows(db, { rows, batchId, defaultGiftName = '' }) {
   const insert = db.prepare(`
     INSERT INTO codes
       (code, batch_id, gift_name, redeem_url, face_value, expires_at, status,
-       campaign_id, redeemed_by, redeemed_note, redeemed_at, earmark_start, earmark_end)
+       campaign_id, redeemed_by, redeemed_note, redeemed_at, earmark_start, earmark_end,
+       ${SIGNOFF_COLS.join(', ')})
     VALUES
       (@code, @batch_id, @gift_name, @redeem_url, @face_value, @expires_at, @status,
-       @campaign_id, @redeemed_by, @redeemed_note, @redeemed_at, @earmark_start, @earmark_end)
+       @campaign_id, @redeemed_by, @redeemed_note, @redeemed_at, @earmark_start, @earmark_end,
+       ${SIGNOFF_COLS.map((c) => `@${c}`).join(', ')})
   `);
 
   let imported = 0;
@@ -58,10 +66,11 @@ function importRows(db, { rows, batchId, defaultGiftName = '' }) {
       redeemed_at: status === 'redeemed' ? nowIso() : null,
       earmark_start: row.earmark_start || '',
       earmark_end: row.earmark_end || '',
+      ...Object.fromEntries(SIGNOFF_COLS.map((c) => [c, row[c] || ''])),
     });
     imported++;
   }
   return { imported, duplicates };
 }
 
-module.exports = { importRows, getOrCreateCampaign, nowIso };
+module.exports = { importRows, getOrCreateCampaign, nowIso, SIGNOFF_COLS };

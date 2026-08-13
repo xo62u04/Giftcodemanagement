@@ -6,7 +6,7 @@ const express = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv, TEMPLATE_CSV } = require('./csv');
-const { importRows, getOrCreateCampaign } = require('./importer');
+const { importRows, getOrCreateCampaign, SIGNOFF_COLS } = require('./importer');
 const { requireAdmin } = require('./auth');
 const { runSync, getSyncStatus, setSyncDir } = require('./sync');
 const staffRouter = require('./staff');
@@ -99,11 +99,23 @@ app.get('/api/stats', (req, res) => {
   const total = totals.total || 0;
   const redeemed = totals.redeemed || 0;
   const earmarked = totals.earmarked || 0;
+
+  // 各狀態的面額總額（面額為文字欄，沿用 parseFaceValue 與活動成本一致的解析）
+  const amounts = { total: 0, available: 0, earmarked: 0, redeemed: 0 };
+  const amtRows = db.prepare(`SELECT face_value AS fv, (${DISPLAY_STATUS_SQL}) AS ds FROM codes k`).all();
+  for (const r of amtRows) {
+    const v = parseFaceValue(r.fv);
+    if (v == null) continue;
+    amounts.total += v;
+    amounts[r.ds] += v;
+  }
+
   res.json({
     total,
     redeemed,
     earmarked,
     available: total - redeemed - earmarked,
+    amounts,
     batch_count: batchCount,
     campaigns: byCampaign,
   });
@@ -408,14 +420,14 @@ app.put('/api/codes/:id', (req, res) => {
   }
 
   const pick = (key) => (req.body[key] === undefined ? code[key] : String(req.body[key] || '').trim());
-  db.prepare(`
-    UPDATE codes SET gift_name = ?, code = ?, redeem_url = ?, face_value = ?, expires_at = ?,
-                     earmark_start = ?, earmark_end = ?
-    WHERE id = ?
-  `).run(
-    pick('gift_name'), newCode, redeemUrl, pick('face_value'), pick('expires_at'),
-    pick('earmark_start'), pick('earmark_end'), code.id
-  );
+  // 內容欄位 + 簽收表欄位（客戶與發送資訊）一併可編輯
+  const editable = [
+    'gift_name', 'face_value', 'expires_at', 'earmark_start', 'earmark_end',
+    ...SIGNOFF_COLS,
+  ];
+  const setSql = ['code = ?', 'redeem_url = ?', ...editable.map((c) => `${c} = ?`)].join(', ');
+  const params = [newCode, redeemUrl, ...editable.map((c) => pick(c)), code.id];
+  db.prepare(`UPDATE codes SET ${setSql} WHERE id = ?`).run(...params);
   res.json(db.prepare(`${CODE_SELECT} WHERE k.id = ?`).get(code.id));
 });
 
@@ -541,6 +553,51 @@ app.get('/api/export.csv', (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="giftcodes-export.csv"');
   res.send('\uFEFF' + lines.join('\n') + '\n');
+});
+
+// ---- 匯出簽收表（虛擬禮品贈送紀錄）----
+// 欄序比照公司「【簽收表】虛擬禮品贈送紀錄」。含客戶個資，屬敏感資料。
+app.get('/api/signoff.csv', (req, res) => {
+  const { clause, params } = buildCodeFilters(req.query);
+  const rows = db.prepare(`${CODE_SELECT} ${clause} ORDER BY k.id`).all(params);
+
+  const esc = (v) => {
+    const s = String(v == null ? '' : v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = [
+    '編號', '專案名稱', '產品名稱', 'Email/SMS', 'Mobile', 'Email', '兌換連結', '密碼',
+    '發送時間', '發送狀態', '狀態更新時間', '期貨帳號', '購買人姓名', '身份證字號',
+    '戶籍地址', '面額', '單位', '營業員',
+  ];
+  const lines = [header.join(',')];
+  rows.forEach((r, i) => {
+    lines.push([
+      i + 1,
+      r.campaign_name || '',
+      r.gift_name || '',
+      r.send_method,
+      r.recipient_mobile,
+      r.recipient_email,
+      r.redeem_url || '',
+      r.code,
+      r.sent_at,
+      r.send_status,
+      r.status_updated_at,
+      r.account_no,
+      r.recipient_name,
+      r.national_id,
+      r.address,
+      r.face_value,
+      r.unit,
+      r.sales_rep,
+    ].map(esc).join(','));
+  });
+
+  const filename = encodeURIComponent('虛擬禮品贈送紀錄.csv');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="signoff.csv"; filename*=UTF-8''${filename}`);
+  res.send('﻿' + lines.join('\n') + '\n');
 });
 
 app.get('/api/template.csv', (req, res) => {

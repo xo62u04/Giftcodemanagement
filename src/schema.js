@@ -119,6 +119,15 @@ function applySchema(db) {
   // codes 表升級（需在批次 gift_name 補上之後）
   migrateCodesTable(db);
 
+  // 簽收表欄位：客戶與發送資訊（追加欄位即可，不需重建）。
+  // 註：national_id / address / account_no 為敏感個資，試行版明碼儲存，正式版（MSSQL）須加密與存取控管。
+  for (const col of [
+    'send_method', 'recipient_mobile', 'recipient_email', 'sent_at', 'send_status',
+    'status_updated_at', 'account_no', 'recipient_name', 'national_id', 'address', 'unit', 'sales_rep',
+  ]) {
+    addColumnIfMissing(db, 'codes', col, `ALTER TABLE codes ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
+
   stripLeadingApostrophes(db);
 
   db.exec(`

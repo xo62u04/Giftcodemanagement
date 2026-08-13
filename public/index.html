@@ -24,10 +24,10 @@
     <!-- 總覽 -->
     <section id="tab-overview" class="tab active">
       <div class="stat-cards">
-        <div class="stat-card"><div class="stat-label">禮券總數</div><div class="stat-value" id="stat-total">–</div></div>
-        <div class="stat-card"><div class="stat-label">未兌換</div><div class="stat-value stat-available" id="stat-available">–</div></div>
-        <div class="stat-card"><div class="stat-label">已圈存</div><div class="stat-value stat-earmarked" id="stat-earmarked">–</div></div>
-        <div class="stat-card"><div class="stat-label">已兌換</div><div class="stat-value stat-redeemed" id="stat-redeemed">–</div></div>
+        <div class="stat-card"><div class="stat-label">禮券總數</div><div class="stat-value" id="stat-total">–</div><div class="stat-amt" id="stat-total-amt">–</div></div>
+        <div class="stat-card"><div class="stat-label">未兌換（可兌換）</div><div class="stat-value stat-available" id="stat-available">–</div><div class="stat-amt" id="stat-available-amt">–</div></div>
+        <div class="stat-card"><div class="stat-label">已圈存</div><div class="stat-value stat-earmarked" id="stat-earmarked">–</div><div class="stat-amt" id="stat-earmarked-amt">–</div></div>
+        <div class="stat-card"><div class="stat-label">已兌換</div><div class="stat-value stat-redeemed" id="stat-redeemed">–</div><div class="stat-amt" id="stat-redeemed-amt">–</div></div>
         <div class="stat-card"><div class="stat-label">上傳批次</div><div class="stat-value" id="stat-batches">–</div></div>
       </div>
       <div class="section-heading">
@@ -66,6 +66,11 @@
         <select id="filter-campaign"><option value="">全部活動</option></select>
         <button type="button" class="btn btn-secondary" id="btn-reset-filter">清除條件</button>
         <button type="button" class="btn btn-secondary" id="btn-export">匯出 CSV</button>
+        <button type="button" class="btn btn-secondary" id="btn-export-signoff">匯出簽收表</button>
+        <div class="col-picker">
+          <button type="button" class="btn btn-secondary" id="btn-col-picker">欄位 ▾</button>
+          <div class="col-menu" id="col-menu"></div>
+        </div>
       </form>
       <div id="bulk-bar" class="bulk-bar">
         <div class="bulk-range">
@@ -90,12 +95,12 @@
           <thead>
             <tr>
               <th class="col-seq">#</th>
-              <th>禮券名稱</th><th>密碼/序號</th><th>兌換連結</th><th>面額</th><th>到期日</th><th>狀態</th><th>圈存起訖</th>
-              <th>使用活動</th><th>經手人</th><th>兌換時間</th><th>備註</th><th>操作</th>
+              <th>禮券名稱</th><th>密碼/序號</th><th class="c-url">兌換連結</th><th class="c-value">面額</th><th class="c-expires">到期日</th><th>狀態</th><th class="c-earmark">圈存起訖</th>
+              <th class="c-campaign">使用活動</th><th class="c-recipient">購買人</th><th class="c-sendstatus">發送狀態</th><th class="c-handler">經手人</th><th class="c-redeemedat">兌換時間</th><th class="c-note">備註</th><th>操作</th>
               <th class="col-check"><input type="checkbox" id="check-all" title="全選本頁未兌換的禮券"></th>
             </tr>
           </thead>
-          <tbody id="codes-body"><tr><td colspan="14" class="empty">載入中…</td></tr></tbody>
+          <tbody id="codes-body"><tr><td colspan="16" class="empty">載入中…</td></tr></tbody>
         </table>
       </div>
       <div class="pagination">
@@ -217,18 +222,34 @@
   </dialog>
 
   <!-- 編輯禮券對話框 -->
-  <dialog id="code-dialog">
+  <dialog id="code-dialog" class="wide-dialog">
     <form id="code-form" method="dialog" class="card-form">
       <h2>編輯禮券</h2>
-      <p class="hint">修正上傳時打錯的內容。兌換狀態請用列表的「標記兌換／取消兌換」。</p>
+      <p class="hint">修正上傳時打錯的內容，或填入客戶與發送資訊（供簽收表）。兌換狀態請用列表的「標記兌換／取消兌換」。</p>
       <input type="hidden" id="code-edit-id">
       <label>禮品名稱 <input type="text" id="code-edit-gift-name" placeholder="例：7-ELEVEN 100元數位商品禮券"></label>
       <label>密碼／序號 <input type="text" id="code-edit-code" required></label>
       <label>兌換連結 <input type="text" id="code-edit-url" placeholder="https://…"></label>
       <label>面額 <input type="text" id="code-edit-value" placeholder="例：100"></label>
+      <label>單位 <input type="text" id="code-edit-unit" placeholder="例：張 / 元"></label>
       <label>到期日 <input type="text" id="code-edit-expires" placeholder="YYYY-MM-DD"></label>
       <label>圈存開始日 <input type="text" id="code-edit-earmark-start" placeholder="YYYY-MM-DD"></label>
       <label>圈存結束日 <input type="text" id="code-edit-earmark-end" placeholder="YYYY-MM-DD"></label>
+
+      <h3 class="form-sub">客戶與發送資訊（簽收表）</h3>
+      <p class="hint" style="margin-top:-4px">⚠️ 身分證字號、戶籍地址、期貨帳號屬敏感個資，正式版將加密保護。</p>
+      <label>購買人姓名 <input type="text" id="code-edit-recipient-name"></label>
+      <label>期貨帳號 <input type="text" id="code-edit-account-no"></label>
+      <label>身份證字號 <input type="text" id="code-edit-national-id"></label>
+      <label>戶籍地址 <input type="text" id="code-edit-address"></label>
+      <label>手機（Mobile） <input type="text" id="code-edit-mobile"></label>
+      <label>Email <input type="text" id="code-edit-email"></label>
+      <label>發送方式（Email/SMS） <input type="text" id="code-edit-send-method" placeholder="例：SMS / Email"></label>
+      <label>發送時間 <input type="text" id="code-edit-sent-at" placeholder="YYYY-MM-DD HH:mm"></label>
+      <label>發送狀態 <input type="text" id="code-edit-send-status" placeholder="例：已送達手機"></label>
+      <label>狀態更新時間 <input type="text" id="code-edit-status-updated-at" placeholder="YYYY-MM-DD HH:mm"></label>
+      <label>營業員 <input type="text" id="code-edit-sales-rep"></label>
+
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="code-cancel">取消</button>
         <button type="submit" class="btn">儲存</button>

@@ -26,13 +26,28 @@ const PROJECT_HEADERS = ['project', 'campaign', 'campaign_name', '適用專案',
 const EARMARK_START_HEADERS = ['earmark_start', 'hold_start', '圈存開始日', '圈存起日', '圈存開始', '圈存起'];
 const EARMARK_END_HEADERS = ['earmark_end', 'hold_end', '圈存結束日', '圈存迄日', '圈存結束', '圈存迄'];
 const STATUS_HEADERS = ['status', 'state', '狀態'];
+// 簽收表：客戶與發送資訊。key = codes 欄位名，值 = 可接受的標頭（normalizeHeader 後比對）
+const SIGNOFF_FIELDS = {
+  send_method: ['email/sms', '發送方式'],
+  recipient_mobile: ['mobile', '手機', '手機號碼', '行動電話'],
+  recipient_email: ['email', '電子郵件', '信箱'],
+  sent_at: ['發送時間'],
+  send_status: ['發送狀態'],
+  status_updated_at: ['狀態更新時間'],
+  account_no: ['期貨帳號', '帳號'],
+  recipient_name: ['購買人姓名', '購買人', '客戶姓名', '姓名'],
+  national_id: ['身份證字號', '身分證字號', '身份證', '身分證'],
+  address: ['戶籍地址', '地址'],
+  unit: ['單位'],
+  sales_rep: ['營業員'],
+};
 
 // 下載用的 CSV 範本。欄位名稱與順序比照使用者實際的電子禮券檔（禮品名稱／兌換連結／密碼…）。
 const TEMPLATE_SAMPLE_CODES = ['ABC12345678', 'ABC12345679'];
 const TEMPLATE_CSV = [
-  '禮品名稱,兌換連結,密碼,面額,經手人,適用專案(選填),圈存開始日(選填),圈存結束日(選填),狀態',
-  `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE1,${TEMPLATE_SAMPLE_CODES[0]},100,,,,,未兌換`,
-  `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE2,${TEMPLATE_SAMPLE_CODES[1]},100,,,,,未兌換`,
+  '禮品名稱,兌換連結,密碼,面額,到期日(選填),經手人,適用專案(選填),圈存開始日(選填),圈存結束日(選填),狀態',
+  `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE1,${TEMPLATE_SAMPLE_CODES[0]},100,2026-12-31,,,,,未兌換`,
+  `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE2,${TEMPLATE_SAMPLE_CODES[1]},100,2026-12-31,,,,,未兌換`,
   '',
 ].join('\r\n');
 
@@ -110,6 +125,7 @@ function parseGiftcodeCsv(buffer) {
   let earmarkStartIdx = -1;
   let earmarkEndIdx = -1;
   let statusIdx = -1;
+  const signoffIdx = {}; // 簽收表欄位 → 欄索引
   if (codeIdx !== -1) {
     valueIdx = findColumn(headers, VALUE_HEADERS);
     expiryIdx = findColumn(headers, EXPIRY_HEADERS);
@@ -120,6 +136,9 @@ function parseGiftcodeCsv(buffer) {
     earmarkStartIdx = findColumn(headers, EARMARK_START_HEADERS);
     earmarkEndIdx = findColumn(headers, EARMARK_END_HEADERS);
     statusIdx = findColumn(headers, STATUS_HEADERS);
+    for (const [field, aliases] of Object.entries(SIGNOFF_FIELDS)) {
+      signoffIdx[field] = findColumn(headers, aliases);
+    }
   } else {
     // 無法辨識標頭：把第一欄當禮券碼
     codeIdx = 0;
@@ -166,6 +185,9 @@ function parseGiftcodeCsv(buffer) {
       earmark_start: cell(rec, earmarkStartIdx),
       earmark_end: cell(rec, earmarkEndIdx),
       status: mapStatus(cell(rec, statusIdx)),
+      ...Object.fromEntries(
+        Object.keys(SIGNOFF_FIELDS).map((f) => [f, cell(rec, signoffIdx[f] ?? -1)])
+      ),
     });
   }
   // 取第一個非空的 gift_name 作為整批的禮品名稱

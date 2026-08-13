@@ -381,7 +381,7 @@ test('上傳時去除密碼開頭的 Excel 單引號（文字前置符）', asyn
 test('範本包含兌換連結等新欄位', async () => {
   const buf = Buffer.from(await (await fetch(`${base}/api/template.csv`)).arrayBuffer());
   const text = buf.toString('utf8');
-  for (const h of ['禮品名稱', '兌換連結', '密碼', '面額', '狀態']) {
+  for (const h of ['禮品名稱', '兌換連結', '密碼', '面額', '到期日', '狀態']) {
     assert.ok(text.includes(h), `範本應含欄位 ${h}`);
   }
 });

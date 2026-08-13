@@ -90,6 +90,12 @@ async function loadStats() {
     $('#stat-earmarked').textContent = s.earmarked ?? 0;
     $('#stat-redeemed').textContent = s.redeemed;
     $('#stat-batches').textContent = s.batch_count;
+    const amt = s.amounts || {};
+    const money = (n) => `$${Number(n || 0).toLocaleString()}`;
+    $('#stat-total-amt').textContent = money(amt.total);
+    $('#stat-available-amt').textContent = money(amt.available);
+    $('#stat-earmarked-amt').textContent = money(amt.earmarked);
+    $('#stat-redeemed-amt').textContent = money(amt.redeemed);
     const body = $('#campaign-stats');
     const fmt = (n) => n == null ? '-' : `$${Number(n).toLocaleString()}`;
     body.innerHTML = campaigns.length
@@ -200,7 +206,7 @@ async function loadCodes() {
     const firstSeq = (data.page - 1) * state.pageSize;
     body.innerHTML = data.items.length
       ? data.items.map((item, i) => renderCodeRow(item, firstSeq + i + 1)).join('')
-      : '<tr><td colspan="14" class="empty">沒有符合條件的禮券</td></tr>';
+      : '<tr><td colspan="16" class="empty">沒有符合條件的禮券</td></tr>';
     const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
     // 表格上下各有一組分頁列，一起更新
     const label = `第 ${data.page} / ${totalPages} 頁（共 ${data.total} 筆）`;
@@ -244,15 +250,17 @@ function renderCodeRow(item, seq) {
     <td class="col-seq muted">${seq}</td>
     <td>${escapeHtml(item.gift_name || '')}</td>
     <td><code>${escapeHtml(item.code)}</code></td>
-    <td>${urlCell}</td>
-    <td>${escapeHtml(item.face_value)}</td>
-    <td>${escapeHtml(item.expires_at)}</td>
+    <td class="c-url">${urlCell}</td>
+    <td class="c-value">${escapeHtml(item.face_value)}</td>
+    <td class="c-expires">${escapeHtml(item.expires_at)}</td>
     <td>${statusBadge}</td>
-    <td style="white-space:nowrap;font-size:0.9em">${earmarkCell}</td>
-    <td>${escapeHtml(item.campaign_name || '')}</td>
-    <td>${escapeHtml(item.redeemed_by)}</td>
-    <td>${formatTime(item.redeemed_at)}</td>
-    <td>${escapeHtml(item.redeemed_note)}</td>
+    <td class="c-earmark" style="white-space:nowrap;font-size:0.9em">${earmarkCell}</td>
+    <td class="c-campaign">${escapeHtml(item.campaign_name || '')}</td>
+    <td class="c-recipient">${escapeHtml(item.recipient_name || '')}</td>
+    <td class="c-sendstatus">${escapeHtml(item.send_status || '')}</td>
+    <td class="c-handler">${escapeHtml(item.redeemed_by)}</td>
+    <td class="c-redeemedat">${formatTime(item.redeemed_at)}</td>
+    <td class="c-note">${escapeHtml(item.redeemed_note)}</td>
     <td class="actions-cell">${action}</td>
     ${checkCell}
   </tr>`;
@@ -402,6 +410,58 @@ document.querySelectorAll('#tab-codes [data-page]').forEach((btn) => {
 });
 $('#btn-export').addEventListener('click', () => {
   window.location.href = `/api/export.csv?${currentFilters()}`;
+});
+$('#btn-export-signoff').addEventListener('click', () => {
+  window.location.href = `/api/signoff.csv?${currentFilters()}`;
+});
+
+// ---- 欄位顯示設定（勾選要顯示哪些欄，記在瀏覽器；核心欄固定顯示）----
+const TOGGLE_COLS = [
+  { key: 'url', label: '兌換連結' },
+  { key: 'value', label: '面額' },
+  { key: 'expires', label: '到期日' },
+  { key: 'earmark', label: '圈存起訖' },
+  { key: 'campaign', label: '使用活動' },
+  { key: 'recipient', label: '購買人' },
+  { key: 'sendstatus', label: '發送狀態' },
+  { key: 'handler', label: '經手人' },
+  { key: 'redeemedat', label: '兌換時間' },
+  { key: 'note', label: '備註' },
+];
+const COL_STORE = 'egift.hiddenCols';
+let hiddenCols = new Set();
+try { hiddenCols = new Set(JSON.parse(localStorage.getItem(COL_STORE) || '[]')); } catch { /* ignore */ }
+const colStyle = document.createElement('style');
+document.head.appendChild(colStyle);
+function applyColVisibility() {
+  colStyle.textContent = [...hiddenCols].map((k) => `.data-table .c-${k}{display:none}`).join('');
+}
+(function buildColMenu() {
+  const menu = $('#col-menu');
+  menu.innerHTML = TOGGLE_COLS.map((c) =>
+    `<label class="col-opt"><input type="checkbox" data-col="${c.key}"${hiddenCols.has(c.key) ? '' : ' checked'}> ${c.label}</label>`
+  ).join('');
+  menu.addEventListener('change', (e) => {
+    const cb = e.target.closest('input[data-col]');
+    if (!cb) return;
+    if (cb.checked) hiddenCols.delete(cb.dataset.col);
+    else hiddenCols.add(cb.dataset.col);
+    localStorage.setItem(COL_STORE, JSON.stringify([...hiddenCols]));
+    applyColVisibility();
+  });
+})();
+$('#btn-col-picker').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#col-menu').classList.toggle('open');
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.col-picker')) $('#col-menu').classList.remove('open');
+});
+applyColVisibility();
+
+// 彈窗點外面（backdrop）即關閉
+document.querySelectorAll('dialog').forEach((d) => {
+  d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
 });
 
 async function loadFilterOptions() {
@@ -637,6 +697,18 @@ $('#codes-body').addEventListener('click', async (e) => {
     $('#code-edit-expires').value = item.expires_at || '';
     $('#code-edit-earmark-start').value = item.earmark_start || '';
     $('#code-edit-earmark-end').value = item.earmark_end || '';
+    $('#code-edit-unit').value = item.unit || '';
+    $('#code-edit-recipient-name').value = item.recipient_name || '';
+    $('#code-edit-account-no').value = item.account_no || '';
+    $('#code-edit-national-id').value = item.national_id || '';
+    $('#code-edit-address').value = item.address || '';
+    $('#code-edit-mobile').value = item.recipient_mobile || '';
+    $('#code-edit-email').value = item.recipient_email || '';
+    $('#code-edit-send-method').value = item.send_method || '';
+    $('#code-edit-sent-at').value = item.sent_at || '';
+    $('#code-edit-send-status').value = item.send_status || '';
+    $('#code-edit-status-updated-at').value = item.status_updated_at || '';
+    $('#code-edit-sales-rep').value = item.sales_rep || '';
     $('#code-dialog').showModal();
   } else if (btn.dataset.action === 'delete-code') {
     const isRedeemed = btn.dataset.redeemed === '1';
@@ -671,6 +743,18 @@ $('#code-form').addEventListener('submit', async (e) => {
         expires_at: $('#code-edit-expires').value,
         earmark_start: $('#code-edit-earmark-start').value,
         earmark_end: $('#code-edit-earmark-end').value,
+        unit: $('#code-edit-unit').value,
+        recipient_name: $('#code-edit-recipient-name').value,
+        account_no: $('#code-edit-account-no').value,
+        national_id: $('#code-edit-national-id').value,
+        address: $('#code-edit-address').value,
+        recipient_mobile: $('#code-edit-mobile').value,
+        recipient_email: $('#code-edit-email').value,
+        send_method: $('#code-edit-send-method').value,
+        sent_at: $('#code-edit-sent-at').value,
+        send_status: $('#code-edit-send-status').value,
+        status_updated_at: $('#code-edit-status-updated-at').value,
+        sales_rep: $('#code-edit-sales-rep').value,
       }),
     });
     $('#code-dialog').close();
@@ -760,7 +844,10 @@ $('#upload-form').addEventListener('submit', async (e) => {
     // 上傳表單與禮券列表同頁，不刷新的話下方列表會停在舊資料
     loadFilterOptions();
     loadCodes();
-    toast('上傳成功');
+    const parts = [`匯入 ${r.imported} 筆`];
+    if (r.duplicates.length) parts.push(`重複略過 ${r.duplicates.length} 筆`);
+    if (r.warnings.length) parts.push(`警告 ${r.warnings.length} 筆`);
+    toast(`上傳完成：${parts.join('、')}`);
   } catch (err) {
     box.classList.remove('hidden');
     box.classList.add('error');
