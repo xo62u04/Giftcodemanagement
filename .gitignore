@@ -5,3 +5,12 @@ data/
 *.db-wal
 *.db-shm
 .DS_Store
+
+# Python API
+__pycache__/
+*.pyc
+logs/
+# 打包產物（由 build\setup_runtime.ps1 產生；部署時連同專案一起複製，不進版控）
+runtime/
+# MSSQL 連線帳密（各機自行建立，切勿加入版控）
+api/config.local.json

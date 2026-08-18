@@ -1,0 +1,7 @@
+{
+  "db_host": "172.22.112.2",
+  "db_port": 1433,
+  "db_name": "EGift",
+  "db_user": "填入 MSSQL 帳號",
+  "db_password": "填入 MSSQL 密碼"
+}
