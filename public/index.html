@@ -55,20 +55,16 @@
       </div>
 
       <form id="filter-form" class="filter-bar">
-        <input type="search" id="filter-q" placeholder="搜尋禮券碼…">
-        <select id="filter-status">
-          <option value="">全部狀態</option>
-          <option value="available">未兌換</option>
-          <option value="earmarked">已圈存</option>
-          <option value="redeemed">已兌換</option>
-        </select>
-        <select id="filter-batch"><option value="">全部批次</option></select>
-        <select id="filter-campaign"><option value="">全部活動</option></select>
+        <input type="search" id="filter-q" placeholder="搜尋密碼/序號…">
+        <div class="ms" id="ms-status"></div>
+        <div class="ms" id="ms-batch"></div>
+        <div class="ms" id="ms-campaign"></div>
         <button type="button" class="btn btn-secondary" id="btn-reset-filter">清除條件</button>
+        <span id="filter-count" class="filter-count"></span>
         <button type="button" class="btn btn-secondary" id="btn-export">匯出 CSV</button>
         <button type="button" class="btn btn-secondary" id="btn-export-signoff">匯出簽收表</button>
         <div class="col-picker">
-          <button type="button" class="btn btn-secondary" id="btn-col-picker">欄位 ▾</button>
+          <button type="button" class="btn btn-secondary" id="btn-col-picker">自訂欄位 ▾</button>
           <div class="col-menu" id="col-menu"></div>
         </div>
       </form>

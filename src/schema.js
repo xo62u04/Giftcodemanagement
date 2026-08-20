@@ -106,6 +106,13 @@ function applySchema(db) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_prefs (
+      windows_username TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (windows_username, key)
+    );
   `);
 
   // 批次與活動的欄位升級（保留既有作法）

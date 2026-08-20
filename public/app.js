@@ -178,14 +178,66 @@ $('#campaign-form').addEventListener('submit', async (e) => {
   }
 });
 
+// ---- 多條件篩選（可複選）----
+function createMultiSelect(el, label, onChange) {
+  let options = [];
+  const selected = new Set();
+  el.classList.add('ms');
+  el.innerHTML = '<button type="button" class="btn btn-secondary ms-toggle"></button><div class="ms-menu"></div>';
+  const toggle = el.querySelector('.ms-toggle');
+  const menu = el.querySelector('.ms-menu');
+  function renderToggle() {
+    toggle.textContent = selected.size ? `${label}（${selected.size}）▾` : `${label} ▾`;
+    toggle.classList.toggle('active', selected.size > 0);
+  }
+  function renderMenu() {
+    menu.innerHTML = options.length
+      ? options.map((o) =>
+        `<label class="col-opt"><input type="checkbox" value="${escapeHtml(o.value)}"${selected.has(String(o.value)) ? ' checked' : ''}> ${escapeHtml(o.label)}</label>`
+      ).join('')
+      : '<div class="ms-empty">（無選項）</div>';
+  }
+  toggle.addEventListener('click', (e) => { e.stopPropagation(); el.classList.toggle('open'); });
+  menu.addEventListener('change', (e) => {
+    const cb = e.target.closest('input[type="checkbox"]');
+    if (!cb) return;
+    if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+    renderToggle();
+    onChange();
+  });
+  renderToggle();
+  return {
+    setOptions(opts) {
+      options = opts;
+      for (const v of [...selected]) { if (!opts.some((o) => String(o.value) === v)) selected.delete(v); }
+      renderMenu();
+      renderToggle();
+    },
+    values() { return [...selected]; },
+    clear() { selected.clear(); renderMenu(); renderToggle(); },
+  };
+}
+
+const msStatus = createMultiSelect($('#ms-status'), '狀態', applyFilters);
+const msBatch = createMultiSelect($('#ms-batch'), '批次', applyFilters);
+const msCampaign = createMultiSelect($('#ms-campaign'), '活動', applyFilters);
+msStatus.setOptions([
+  { value: 'available', label: '未兌換' },
+  { value: 'earmarked', label: '已圈存' },
+  { value: 'redeemed', label: '已兌換' },
+]);
+
 // ---- 禮券列表 ----
 function currentFilters() {
   const params = new URLSearchParams();
   const q = $('#filter-q').value.trim();
   if (q) params.set('q', q);
-  if ($('#filter-status').value) params.set('status', $('#filter-status').value);
-  if ($('#filter-batch').value) params.set('batch_id', $('#filter-batch').value);
-  if ($('#filter-campaign').value) params.set('campaign_id', $('#filter-campaign').value);
+  const st = msStatus.values();
+  if (st.length) params.set('status', st.join(','));
+  const bt = msBatch.values();
+  if (bt.length) params.set('batch_id', bt.join(','));
+  const cp = msCampaign.values();
+  if (cp.length) params.set('campaign_id', cp.join(','));
   return params;
 }
 
@@ -211,6 +263,7 @@ async function loadCodes() {
     // 表格上下各有一組分頁列，一起更新
     const label = `第 ${data.page} / ${totalPages} 頁（共 ${data.total} 筆）`;
     document.querySelectorAll('#tab-codes .page-info').forEach((el) => { el.textContent = label; });
+    $('#filter-count').textContent = `符合條件：${data.total} 筆`;
     document.querySelectorAll('#tab-codes [data-page="prev"]').forEach((b) => { b.disabled = data.page <= 1; });
     document.querySelectorAll('#tab-codes [data-page="next"]').forEach((b) => { b.disabled = data.page >= totalPages; });
     updateBulkBar();
@@ -373,8 +426,11 @@ $('#filter-form').addEventListener('submit', (e) => {
   applyFilters();
 });
 
-['#filter-status', '#filter-batch', '#filter-campaign'].forEach((sel) => {
-  $(sel).addEventListener('change', applyFilters);
+// 點空白處收起開著的多選下拉
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.ms')) {
+    document.querySelectorAll('.ms.open').forEach((el) => el.classList.remove('open'));
+  }
 });
 
 // 搜尋框邊打邊查（停止輸入 300ms 後才送出，避免每個按鍵都打 API）
@@ -391,9 +447,9 @@ $('#filter-q').addEventListener('search', () => {
 $('#btn-reset-filter').addEventListener('click', () => {
   clearTimeout(filterQueryTimer);
   $('#filter-q').value = '';
-  $('#filter-status').value = '';
-  $('#filter-batch').value = '';
-  $('#filter-campaign').value = '';
+  msStatus.clear();
+  msBatch.clear();
+  msCampaign.clear();
   applyFilters();
 });
 // 換頁後捲回列表最上方，不用自己滾滑鼠回去
@@ -428,32 +484,54 @@ const TOGGLE_COLS = [
   { key: 'redeemedat', label: '兌換時間' },
   { key: 'note', label: '備註' },
 ];
-const COL_STORE = 'egift.hiddenCols';
-// 首次使用預設隱藏「經手人」（內部欄，報帳不需要）；使用者調整過就以其設定為準
+// 首次使用（DB 尚無紀錄）預設隱藏「經手人」（內部欄，報帳不需要）
 let hiddenCols = new Set(['handler']);
-const _storedCols = localStorage.getItem(COL_STORE);
-if (_storedCols !== null) {
-  try { hiddenCols = new Set(JSON.parse(_storedCols)); } catch { /* 用預設 */ }
-}
 const colStyle = document.createElement('style');
 document.head.appendChild(colStyle);
 function applyColVisibility() {
   colStyle.textContent = [...hiddenCols].map((k) => `.data-table .c-${k}{display:none}`).join('');
 }
-(function buildColMenu() {
+function buildColMenu() {
   const menu = $('#col-menu');
-  menu.innerHTML = TOGGLE_COLS.map((c) =>
-    `<label class="col-opt"><input type="checkbox" data-col="${c.key}"${hiddenCols.has(c.key) ? '' : ' checked'}> ${c.label}</label>`
-  ).join('');
-  menu.addEventListener('change', (e) => {
-    const cb = e.target.closest('input[data-col]');
-    if (!cb) return;
-    if (cb.checked) hiddenCols.delete(cb.dataset.col);
-    else hiddenCols.add(cb.dataset.col);
-    localStorage.setItem(COL_STORE, JSON.stringify([...hiddenCols]));
-    applyColVisibility();
-  });
-})();
+  const allVisible = TOGGLE_COLS.every((c) => !hiddenCols.has(c.key));
+  menu.innerHTML =
+    `<label class="col-opt col-opt-all"><input type="checkbox" data-col="__all__"${allVisible ? ' checked' : ''}> 全部</label>` +
+    TOGGLE_COLS.map((c) =>
+      `<label class="col-opt"><input type="checkbox" data-col="${c.key}"${hiddenCols.has(c.key) ? '' : ' checked'}> ${c.label}</label>`
+    ).join('');
+}
+async function saveColumnPrefs() {
+  try {
+    await api('/api/column-prefs', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden: [...hiddenCols] }),
+    });
+  } catch { /* 存檔失敗不阻斷操作 */ }
+}
+async function loadColumnPrefs() {
+  try {
+    const data = await api('/api/column-prefs');
+    hiddenCols = new Set(data.saved ? (data.hidden || []) : ['handler']);
+  } catch { /* 用預設 */ }
+  buildColMenu();
+  applyColVisibility();
+}
+// 選單變更（監聽掛在容器上，只掛一次）
+$('#col-menu').addEventListener('change', (e) => {
+  const cb = e.target.closest('input[data-col]');
+  if (!cb) return;
+  if (cb.dataset.col === '__all__') {
+    if (cb.checked) TOGGLE_COLS.forEach((c) => hiddenCols.delete(c.key));
+    else TOGGLE_COLS.forEach((c) => hiddenCols.add(c.key));
+  } else if (cb.checked) {
+    hiddenCols.delete(cb.dataset.col);
+  } else {
+    hiddenCols.add(cb.dataset.col);
+  }
+  buildColMenu();
+  applyColVisibility();
+  saveColumnPrefs();
+});
 $('#btn-col-picker').addEventListener('click', (e) => {
   e.stopPropagation();
   $('#col-menu').classList.toggle('open');
@@ -461,7 +539,7 @@ $('#btn-col-picker').addEventListener('click', (e) => {
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.col-picker')) $('#col-menu').classList.remove('open');
 });
-applyColVisibility();
+loadColumnPrefs();
 
 // 彈窗點外面（backdrop）即關閉
 document.querySelectorAll('dialog').forEach((d) => {
@@ -471,8 +549,8 @@ document.querySelectorAll('dialog').forEach((d) => {
 async function loadFilterOptions() {
   try {
     const [batches, campaigns] = await Promise.all([api('/api/batches'), api('/api/campaigns')]);
-    fillSelect($('#filter-batch'), '全部批次', batches.map((b) => [b.id, `#${b.id} ${b.filename}`]));
-    fillSelect($('#filter-campaign'), '全部活動', campaigns.map((c) => [c.id, c.name]));
+    msBatch.setOptions(batches.map((b) => ({ value: b.id, label: `#${b.id} ${b.filename}` })));
+    msCampaign.setOptions(campaigns.map((c) => ({ value: c.id, label: c.name })));
     fillCampaignDatalist(campaigns);
   } catch (err) {
     toast(err.message, true);

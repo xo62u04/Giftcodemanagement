@@ -160,9 +160,23 @@ body.is-admin .admin-only { display: inline-block; }
 .col-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; font-size: 13.5px; cursor: pointer; white-space: nowrap; color: #1f2933; }
 .col-opt:hover { background: #eef1f4; }
 .col-opt input { width: auto; margin: 0; }
+.col-opt-all { font-weight: 700; border-bottom: 1px solid #e0e3e8; margin-bottom: 2px; padding-bottom: 7px; }
+
+/* 多選篩選下拉 */
+.ms { position: relative; display: inline-block; }
+.ms-toggle.active { border-color: #1f6feb; color: #1f6feb; background: #e8f0fe; }
+.ms-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; display: none;
+  background: #fff; border: 1px solid #cbd2d9; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.15); padding: 6px; min-width: 170px;
+  max-height: 300px; overflow-y: auto;
+}
+.ms.open .ms-menu { display: grid; gap: 2px; }
+.ms-empty { padding: 8px 10px; font-size: 13px; color: #9aa5b1; }
+.filter-count { font-size: 13px; color: #52606d; align-self: center; white-space: nowrap; }
 
 /* 篩選列 */
-.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
 .filter-bar input[type="search"] { flex: 1; min-width: 180px; }
 /* select 的固有寬度會被最長的 option 撐開（批次檔名很長），這裡強制可縮 */
 .filter-bar select { min-width: 0; max-width: 100%; flex-shrink: 1; }

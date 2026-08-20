@@ -7,7 +7,7 @@ const multer = require('multer');
 const db = require('./db');
 const { parseGiftcodeCsv, TEMPLATE_CSV } = require('./csv');
 const { importRows, getOrCreateCampaign, SIGNOFF_COLS } = require('./importer');
-const { requireAdmin } = require('./auth');
+const { requireAdmin, getCurrentWindowsUser } = require('./auth');
 const { runSync, getSyncStatus, setSyncDir } = require('./sync');
 const staffRouter = require('./staff');
 const backup = require('./backup');
@@ -195,6 +195,27 @@ app.post('/api/batches', upload.single('file'), (req, res) => {
   });
 });
 
+// ---- 自訂欄位：使用者的欄位顯示偏好（存 DB，依 Windows 帳號）----
+app.get('/api/column-prefs', (req, res) => {
+  const user = getCurrentWindowsUser();
+  const row = db.prepare("SELECT value FROM user_prefs WHERE windows_username = ? AND key = 'codes_columns'").get(user);
+  let hidden = [];
+  if (row) {
+    try { hidden = JSON.parse(row.value); } catch { hidden = []; }
+  }
+  res.json({ hidden, saved: Boolean(row) });
+});
+
+app.put('/api/column-prefs', (req, res) => {
+  const user = getCurrentWindowsUser();
+  const hidden = Array.isArray(req.body.hidden) ? req.body.hidden.map(String) : [];
+  db.prepare(`
+    INSERT INTO user_prefs (windows_username, key, value) VALUES (?, 'codes_columns', ?)
+    ON CONFLICT(windows_username, key) DO UPDATE SET value = excluded.value
+  `).run(user, JSON.stringify(hidden));
+  res.json({ ok: true, hidden });
+});
+
 app.get('/api/batches', (req, res) => {
   res.json(db.prepare(`
     SELECT b.*,
@@ -300,6 +321,14 @@ app.put('/api/campaigns/:id', (req, res) => {
   }
 });
 
+// 多條件篩選（可複選）：status／batch_id／campaign_id 皆可帶多個值
+// （逗號分隔字串，或重複同名參數）；各條件之間為 AND、同條件內為 IN。
+function _asList(v) {
+  if (v == null) return [];
+  const arr = Array.isArray(v) ? v : String(v).split(',');
+  return arr.map((s) => String(s).trim()).filter(Boolean);
+}
+
 function buildCodeFilters(query) {
   const where = [];
   const params = {};
@@ -307,18 +336,25 @@ function buildCodeFilters(query) {
     where.push('k.code LIKE :q');
     params.q = `%${String(query.q).trim()}%`;
   }
-  if (['available', 'redeemed', 'earmarked'].includes(query.status)) {
-    where.push(`(${DISPLAY_STATUS_SQL}) = :status`);
-    params.status = query.status;
+
+  const statuses = _asList(query.status).filter((s) => ['available', 'redeemed', 'earmarked'].includes(s));
+  if (statuses.length) {
+    const keys = statuses.map((s, i) => { params[`st${i}`] = s; return `:st${i}`; });
+    where.push(`(${DISPLAY_STATUS_SQL}) IN (${keys.join(',')})`);
   }
-  if (query.batch_id) {
-    where.push('k.batch_id = :batch_id');
-    params.batch_id = Number(query.batch_id);
+
+  const batches = _asList(query.batch_id).map(Number).filter((n) => !Number.isNaN(n));
+  if (batches.length) {
+    const keys = batches.map((n, i) => { params[`b${i}`] = n; return `:b${i}`; });
+    where.push(`k.batch_id IN (${keys.join(',')})`);
   }
-  if (query.campaign_id) {
-    where.push('k.campaign_id = :campaign_id');
-    params.campaign_id = Number(query.campaign_id);
+
+  const campaigns = _asList(query.campaign_id).map(Number).filter((n) => !Number.isNaN(n));
+  if (campaigns.length) {
+    const keys = campaigns.map((n, i) => { params[`c${i}`] = n; return `:c${i}`; });
+    where.push(`k.campaign_id IN (${keys.join(',')})`);
   }
+
   return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
 }
 
