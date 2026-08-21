@@ -157,6 +157,7 @@ body.is-admin .admin-only { display: inline-block; }
   box-shadow: 0 8px 24px rgba(15,23,42,0.15); padding: 6px; min-width: 150px;
 }
 .col-menu.open { display: grid; gap: 2px; }
+.col-menu { max-height: 340px; overflow-y: auto; }
 .col-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; font-size: 13.5px; cursor: pointer; white-space: nowrap; color: #1f2933; }
 .col-opt:hover { background: #eef1f4; }
 .col-opt input { width: auto; margin: 0; }

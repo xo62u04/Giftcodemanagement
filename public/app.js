@@ -179,6 +179,12 @@ $('#campaign-form').addEventListener('submit', async (e) => {
 });
 
 // ---- 多條件篩選（可複選）----
+// 收起所有開著的下拉（多選篩選＋自訂欄位），確保同時只開一個
+function closeAllDropdowns() {
+  document.querySelectorAll('.ms.open').forEach((x) => x.classList.remove('open'));
+  const cm = $('#col-menu');
+  if (cm) cm.classList.remove('open');
+}
 function createMultiSelect(el, label, onChange) {
   let options = [];
   const selected = new Set();
@@ -197,7 +203,12 @@ function createMultiSelect(el, label, onChange) {
       ).join('')
       : '<div class="ms-empty">（無選項）</div>';
   }
-  toggle.addEventListener('click', (e) => { e.stopPropagation(); el.classList.toggle('open'); });
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = !el.classList.contains('open');
+    closeAllDropdowns();
+    if (willOpen) el.classList.add('open');
+  });
   menu.addEventListener('change', (e) => {
     const cb = e.target.closest('input[type="checkbox"]');
     if (!cb) return;
@@ -258,7 +269,7 @@ async function loadCodes() {
     const firstSeq = (data.page - 1) * state.pageSize;
     body.innerHTML = data.items.length
       ? data.items.map((item, i) => renderCodeRow(item, firstSeq + i + 1)).join('')
-      : '<tr><td colspan="16" class="empty">沒有符合條件的禮券</td></tr>';
+      : `<tr><td colspan="${TABLE_COLSPAN}" class="empty">沒有符合條件的禮券</td></tr>`;
     const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
     // 表格上下各有一組分頁列，一起更新
     const label = `第 ${data.page} / ${totalPages} 頁（共 ${data.total} 筆）`;
@@ -277,6 +288,49 @@ const STATUS_BADGE = {
   earmarked: '<span class="badge badge-earmarked">已圈存</span>',
   available: '<span class="badge badge-available">未兌換</span>',
 };
+
+// 列表所有「資料欄」的單一設定來源；每一欄都可在「自訂欄位」勾選顯示/隱藏。
+// 結構欄（流水號#、操作、勾選框）不在此、固定顯示。
+const COLUMNS = [
+  { key: 'name', label: '禮券名稱', cell: (it) => escapeHtml(it.gift_name || '') },
+  { key: 'code', label: '密碼/序號', cell: (it) => `<code>${escapeHtml(it.code)}</code>` },
+  { key: 'url', label: '兌換連結', cell: (it, c) => c.urlCell },
+  { key: 'value', label: '面額', cell: (it) => escapeHtml(it.face_value) },
+  { key: 'expires', label: '到期日', cell: (it) => escapeHtml(it.expires_at) },
+  { key: 'status', label: '狀態', cell: (it, c) => c.statusBadge },
+  { key: 'earmark', label: '圈存起訖', style: 'white-space:nowrap;font-size:0.9em', cell: (it, c) => c.earmarkCell },
+  { key: 'campaign', label: '使用活動', cell: (it) => escapeHtml(it.campaign_name || '') },
+  { key: 'recipient', label: '兌換人', cell: (it) => escapeHtml(it.recipient_name || '') },
+  { key: 'account', label: '期貨帳號', cell: (it) => escapeHtml(it.account_no || '') },
+  { key: 'nid', label: '身分證字號', cell: (it) => escapeHtml(it.national_id || '') },
+  { key: 'address', label: '戶籍地址', cell: (it) => escapeHtml(it.address || '') },
+  { key: 'mobile', label: '手機', cell: (it) => escapeHtml(it.recipient_mobile || '') },
+  { key: 'email', label: 'Email', cell: (it) => escapeHtml(it.recipient_email || '') },
+  { key: 'method', label: '發送方式', cell: (it) => escapeHtml(it.send_method || '') },
+  { key: 'sentat', label: '發送時間', cell: (it) => escapeHtml(it.sent_at || '') },
+  { key: 'sendstatus', label: '發送狀態', cell: (it) => escapeHtml(it.send_status || '') },
+  { key: 'statusupdated', label: '狀態更新時間', cell: (it) => escapeHtml(it.status_updated_at || '') },
+  { key: 'unit', label: '單位', cell: (it) => escapeHtml(it.unit || '') },
+  { key: 'salesrep', label: '營業員', cell: (it) => escapeHtml(it.sales_rep || '') },
+  { key: 'handler', label: '經手人', cell: (it) => escapeHtml(it.redeemed_by || '') },
+  { key: 'redeemedat', label: '兌換時間', cell: (it) => formatTime(it.redeemed_at) },
+  { key: 'note', label: '備註', cell: (it) => escapeHtml(it.redeemed_note || '') },
+];
+// 首次使用（DB 尚無紀錄）預設顯示的欄；其餘預設收起
+const DEFAULT_VISIBLE = new Set(['name', 'code', 'value', 'status', 'recipient', 'campaign']);
+function defaultHiddenCols() {
+  return new Set(COLUMNS.filter((c) => !DEFAULT_VISIBLE.has(c.key)).map((c) => c.key));
+}
+const TABLE_COLSPAN = COLUMNS.length + 3; // 資料欄 + 流水號 + 操作 + 勾選
+
+function buildTableHead() {
+  const tr = document.querySelector('#tab-codes thead tr');
+  if (!tr) return;
+  tr.innerHTML = '<th class="col-seq">#</th>'
+    + COLUMNS.map((c) => `<th class="c-${c.key}">${c.label}</th>`).join('')
+    + '<th>操作</th>'
+    + '<th class="col-check"><input type="checkbox" id="check-all" title="全選本頁未兌換的禮券"></th>';
+}
 
 function renderCodeRow(item, seq) {
   const status = item.display_status || item.status;
@@ -299,21 +353,12 @@ function renderCodeRow(item, seq) {
   const checkCell = status === 'redeemed'
     ? '<td class="col-check"></td>'
     : `<td class="col-check"><input type="checkbox" class="row-check" data-id="${item.id}"${selectedCodeIds.has(String(item.id)) ? ' checked' : ''}></td>`;
+  const ctx = { status, statusBadge, earmarkCell, urlCell };
+  const dataCells = COLUMNS.map((c) =>
+    `<td class="c-${c.key}"${c.style ? ` style="${c.style}"` : ''}>${c.cell(item, ctx)}</td>`).join('');
   return `<tr>
     <td class="col-seq muted">${seq}</td>
-    <td>${escapeHtml(item.gift_name || '')}</td>
-    <td><code>${escapeHtml(item.code)}</code></td>
-    <td class="c-url">${urlCell}</td>
-    <td class="c-value">${escapeHtml(item.face_value)}</td>
-    <td class="c-expires">${escapeHtml(item.expires_at)}</td>
-    <td>${statusBadge}</td>
-    <td class="c-earmark" style="white-space:nowrap;font-size:0.9em">${earmarkCell}</td>
-    <td class="c-campaign">${escapeHtml(item.campaign_name || '')}</td>
-    <td class="c-recipient">${escapeHtml(item.recipient_name || '')}</td>
-    <td class="c-sendstatus">${escapeHtml(item.send_status || '')}</td>
-    <td class="c-handler">${escapeHtml(item.redeemed_by)}</td>
-    <td class="c-redeemedat">${formatTime(item.redeemed_at)}</td>
-    <td class="c-note">${escapeHtml(item.redeemed_note)}</td>
+    ${dataCells}
     <td class="actions-cell">${action}</td>
     ${checkCell}
   </tr>`;
@@ -342,7 +387,9 @@ $('#codes-body').addEventListener('change', (e) => {
   updateBulkBar();
 });
 
-$('#check-all').addEventListener('change', (e) => {
+// 表頭由 JS 動態產生，check-all 用委派綁定（元素會被重建）
+$('#tab-codes').addEventListener('change', (e) => {
+  if (!e.target || e.target.id !== 'check-all') return;
   document.querySelectorAll('#codes-body .row-check').forEach((box) => {
     box.checked = e.target.checked;
     if (box.checked) selectedCodeIds.add(box.dataset.id);
@@ -471,21 +518,9 @@ $('#btn-export-signoff').addEventListener('click', () => {
   window.location.href = `/api/signoff.csv?${currentFilters()}`;
 });
 
-// ---- 欄位顯示設定（勾選要顯示哪些欄，記在瀏覽器；核心欄固定顯示）----
-const TOGGLE_COLS = [
-  { key: 'url', label: '兌換連結' },
-  { key: 'value', label: '面額' },
-  { key: 'expires', label: '到期日' },
-  { key: 'earmark', label: '圈存起訖' },
-  { key: 'campaign', label: '使用活動' },
-  { key: 'recipient', label: '兌換人' },
-  { key: 'sendstatus', label: '發送狀態' },
-  { key: 'handler', label: '經手人' },
-  { key: 'redeemedat', label: '兌換時間' },
-  { key: 'note', label: '備註' },
-];
-// 首次使用（DB 尚無紀錄）預設隱藏「經手人」（內部欄，報帳不需要）
-let hiddenCols = new Set(['handler']);
+// ---- 自訂欄位（勾選顯示哪些欄，存 DB 依使用者；操作/流水號/勾選框固定顯示）----
+const TOGGLE_COLS = COLUMNS; // 所有資料欄都可自訂
+let hiddenCols = defaultHiddenCols();
 const colStyle = document.createElement('style');
 document.head.appendChild(colStyle);
 function applyColVisibility() {
@@ -511,7 +546,7 @@ async function saveColumnPrefs() {
 async function loadColumnPrefs() {
   try {
     const data = await api('/api/column-prefs');
-    hiddenCols = new Set(data.saved ? (data.hidden || []) : ['handler']);
+    hiddenCols = new Set(data.saved ? (data.hidden || []) : [...defaultHiddenCols()]);
   } catch { /* 用預設 */ }
   buildColMenu();
   applyColVisibility();
@@ -534,11 +569,14 @@ $('#col-menu').addEventListener('change', (e) => {
 });
 $('#btn-col-picker').addEventListener('click', (e) => {
   e.stopPropagation();
-  $('#col-menu').classList.toggle('open');
+  const willOpen = !$('#col-menu').classList.contains('open');
+  closeAllDropdowns();
+  if (willOpen) $('#col-menu').classList.add('open');
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.col-picker')) $('#col-menu').classList.remove('open');
 });
+buildTableHead();
 loadColumnPrefs();
 
 // 彈窗點外面（backdrop）即關閉
