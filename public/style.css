@@ -179,9 +179,13 @@ body.is-admin .admin-only { display: inline-block; }
 /* 進階條件列 */
 .cond-list { display: flex; flex-direction: column; gap: 8px; margin: -6px 0 16px; }
 .cond-list:empty { display: none; }
-.cond-row { display: flex; gap: 8px; align-items: center; }
-.cond-row .cond-field { min-width: 140px; }
+.cond-row { display: flex; gap: 10px; align-items: center; background: #fff; border: 1px solid #e0e3e8; border-radius: 8px; padding: 8px 12px; }
+.cond-row .cond-label { min-width: 96px; font-weight: 600; color: #3e4c59; font-size: 14px; }
 .cond-row .cond-value { flex: 1; max-width: 320px; }
+.cond-status { display: flex; gap: 14px; align-items: center; }
+.cond-status label { display: flex; align-items: center; gap: 5px; font-size: 14px; color: #3e4c59; }
+.cond-status input { width: auto; margin: 0; }
+.cond-remove { margin-left: auto; }
 
 /* 篩選列 */
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }

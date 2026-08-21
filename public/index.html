@@ -56,10 +56,10 @@
 
       <form id="filter-form" class="filter-bar">
         <input type="search" id="filter-q" placeholder="搜尋密碼/序號…">
-        <div class="ms" id="ms-status"></div>
-        <div class="ms" id="ms-batch"></div>
-        <div class="ms" id="ms-campaign"></div>
-        <button type="button" class="btn btn-secondary" id="btn-add-cond">＋ 加條件</button>
+        <div class="col-picker">
+          <button type="button" class="btn btn-secondary" id="btn-filter-picker">篩選 ▾</button>
+          <div class="col-menu" id="filter-menu"></div>
+        </div>
         <button type="button" class="btn btn-secondary" id="btn-reset-filter">清除條件</button>
         <span id="filter-count" class="filter-count"></span>
         <button type="button" class="btn btn-secondary" id="btn-export">匯出 CSV</button>

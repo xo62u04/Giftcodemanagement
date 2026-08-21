@@ -178,82 +178,75 @@ $('#campaign-form').addEventListener('submit', async (e) => {
   }
 });
 
-// ---- 多條件篩選（可複選）----
-// 收起所有開著的下拉（多選篩選＋自訂欄位），確保同時只開一個
+// ---- 篩選（像自訂欄位：勾選要對哪些「可見欄位」篩選，勾了才出現輸入）----
+// 收起所有開著的下拉（篩選、自訂欄位），確保同時只開一個
 function closeAllDropdowns() {
-  document.querySelectorAll('.ms.open').forEach((x) => x.classList.remove('open'));
-  const cm = $('#col-menu');
-  if (cm) cm.classList.remove('open');
+  const fm = $('#filter-menu'); if (fm) fm.classList.remove('open');
+  const cm = $('#col-menu'); if (cm) cm.classList.remove('open');
 }
-function createMultiSelect(el, label, onChange) {
-  let options = [];
-  const selected = new Set();
-  el.classList.add('ms');
-  el.innerHTML = '<button type="button" class="btn btn-secondary ms-toggle"></button><div class="ms-menu"></div>';
-  const toggle = el.querySelector('.ms-toggle');
-  const menu = el.querySelector('.ms-menu');
-  function renderToggle() {
-    toggle.textContent = selected.size ? `${label}（${selected.size}）▾` : `${label} ▾`;
-    toggle.classList.toggle('active', selected.size > 0);
-  }
-  function renderMenu() {
-    menu.innerHTML = options.length
-      ? options.map((o) =>
-        `<label class="col-opt"><input type="checkbox" value="${escapeHtml(o.value)}"${selected.has(String(o.value)) ? ' checked' : ''}> ${escapeHtml(o.label)}</label>`
-      ).join('')
-      : '<div class="ms-empty">（無選項）</div>';
-  }
-  toggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const willOpen = !el.classList.contains('open');
-    closeAllDropdowns();
-    if (willOpen) el.classList.add('open');
-  });
-  menu.addEventListener('change', (e) => {
-    const cb = e.target.closest('input[type="checkbox"]');
-    if (!cb) return;
-    if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
-    renderToggle();
-    onChange();
-  });
-  renderToggle();
-  return {
-    setOptions(opts) {
-      options = opts;
-      for (const v of [...selected]) { if (!opts.some((o) => String(o.value) === v)) selected.delete(v); }
-      renderMenu();
-      renderToggle();
-    },
-    values() { return [...selected]; },
-    clear() { selected.clear(); renderMenu(); renderToggle(); },
-  };
+// 可篩選的欄位＝目前可見的欄位（圈存起訖為計算顯示，排除）
+function filterPickerColumns() {
+  return COLUMNS.filter((c) => c.key !== 'earmark' && !hiddenCols.has(c.key));
 }
-
-const msStatus = createMultiSelect($('#ms-status'), '狀態', applyFilters);
-const msBatch = createMultiSelect($('#ms-batch'), '批次', applyFilters);
-const msCampaign = createMultiSelect($('#ms-campaign'), '活動', applyFilters);
-msStatus.setOptions([
-  { value: 'available', label: '未兌換' },
-  { value: 'earmarked', label: '已圈存' },
-  { value: 'redeemed', label: '已兌換' },
-]);
+function hasFilterRow(key) {
+  return !!document.querySelector(`#cond-list .cond-row[data-field="${key}"]`);
+}
+function buildFilterMenu() {
+  const cols = filterPickerColumns();
+  $('#filter-menu').innerHTML = cols.length
+    ? cols.map((c) =>
+      `<label class="col-opt"><input type="checkbox" data-fcol="${c.key}"${hasFilterRow(c.key) ? ' checked' : ''}> ${escapeHtml(c.label)}</label>`
+    ).join('')
+    : '<div class="ms-empty">請先在「自訂欄位」勾選欄位</div>';
+}
+function addFilterRow(key) {
+  if (hasFilterRow(key)) return;
+  const col = COLUMNS.find((c) => c.key === key);
+  if (!col) return;
+  const row = document.createElement('div');
+  row.className = 'cond-row';
+  row.dataset.field = key;
+  const valueHtml = key === 'status'
+    ? '<div class="cond-status">'
+      + '<label><input type="checkbox" value="available">未兌換</label>'
+      + '<label><input type="checkbox" value="earmarked">已圈存</label>'
+      + '<label><input type="checkbox" value="redeemed">已兌換</label></div>'
+    : '<input type="text" class="cond-value" placeholder="包含…">';
+  row.innerHTML = `<span class="cond-label">${escapeHtml(col.label)}</span>${valueHtml}`
+    + '<button type="button" class="btn btn-secondary btn-small cond-remove" title="移除此條件">✕</button>';
+  $('#cond-list').appendChild(row);
+  const v = row.querySelector('.cond-value');
+  if (v) v.focus();
+}
+function removeFilterRow(key) {
+  const row = document.querySelector(`#cond-list .cond-row[data-field="${key}"]`);
+  if (row) row.remove();
+}
+// 自訂欄位改變時：篩選選單與已展開的條件列，跟著只保留可見欄位
+function refreshFilterUI() {
+  const avail = new Set(filterPickerColumns().map((c) => c.key));
+  let changed = false;
+  document.querySelectorAll('#cond-list .cond-row').forEach((row) => {
+    if (!avail.has(row.dataset.field)) { row.remove(); changed = true; }
+  });
+  if ($('#filter-menu').classList.contains('open')) buildFilterMenu();
+  if (changed) applyFilters();
+}
 
 // ---- 禮券列表 ----
 function currentFilters() {
   const params = new URLSearchParams();
   const q = $('#filter-q').value.trim();
   if (q) params.set('q', q);
-  const st = msStatus.values();
-  if (st.length) params.set('status', st.join(','));
-  const bt = msBatch.values();
-  if (bt.length) params.set('batch_id', bt.join(','));
-  const cp = msCampaign.values();
-  if (cp.length) params.set('campaign_id', cp.join(','));
-  // 進階條件（＋加條件）：欄位限「自訂欄位」有勾選（可見）者
   document.querySelectorAll('#cond-list .cond-row').forEach((row) => {
-    const field = row.querySelector('.cond-field').value;
-    const val = row.querySelector('.cond-value').value.trim();
-    if (field && val) params.append(`f_${field}`, val);
+    const field = row.dataset.field;
+    if (field === 'status') {
+      const vals = [...row.querySelectorAll('.cond-status input:checked')].map((cb) => cb.value);
+      if (vals.length) params.set('status', vals.join(','));
+    } else {
+      const val = row.querySelector('.cond-value').value.trim();
+      if (val) params.append(`f_${field}`, val);
+    }
   });
   return params;
 }
@@ -500,10 +493,8 @@ $('#filter-q').addEventListener('search', () => {
 $('#btn-reset-filter').addEventListener('click', () => {
   clearTimeout(filterQueryTimer);
   $('#filter-q').value = '';
-  msStatus.clear();
-  msBatch.clear();
-  msCampaign.clear();
   $('#cond-list').innerHTML = '';
+  if ($('#filter-menu').classList.contains('open')) buildFilterMenu();
   applyFilters();
 });
 // 換頁後捲回列表最上方，不用自己滾滑鼠回去
@@ -573,7 +564,7 @@ $('#col-menu').addEventListener('change', (e) => {
   buildColMenu();
   applyColVisibility();
   saveColumnPrefs();
-  refreshConditionFields();
+  refreshFilterUI();
 });
 $('#btn-col-picker').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -582,66 +573,40 @@ $('#btn-col-picker').addEventListener('click', (e) => {
   if (willOpen) $('#col-menu').classList.add('open');
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.col-picker')) $('#col-menu').classList.remove('open');
+  if (!e.target.closest('.col-picker')) closeAllDropdowns();
 });
 
-// ---- 進階條件（＋加條件）：欄位＝自訂欄位裡「有勾選」的可見欄 ----
-const FILTERABLE_KEYS = new Set([
-  'name', 'code', 'url', 'value', 'expires', 'recipient', 'account', 'nid', 'address',
-  'mobile', 'email', 'method', 'sentat', 'sendstatus', 'statusupdated', 'unit', 'salesrep',
-  'handler', 'redeemedat', 'note',
-]);
-function conditionFieldOptions() {
-  return COLUMNS.filter((c) => FILTERABLE_KEYS.has(c.key) && !hiddenCols.has(c.key));
-}
-function fieldOptionsHtml(selected) {
-  return conditionFieldOptions()
-    .map((c) => `<option value="${c.key}"${c.key === selected ? ' selected' : ''}>${escapeHtml(c.label)}</option>`)
-    .join('');
-}
+// ---- 篩選選單與條件列（委派，只掛一次）----
+$('#btn-filter-picker').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const willOpen = !$('#filter-menu').classList.contains('open');
+  closeAllDropdowns();
+  if (willOpen) { buildFilterMenu(); $('#filter-menu').classList.add('open'); }
+});
+$('#filter-menu').addEventListener('change', (e) => {
+  const cb = e.target.closest('input[data-fcol]');
+  if (!cb) return;
+  if (cb.checked) addFilterRow(cb.dataset.fcol); else removeFilterRow(cb.dataset.fcol);
+  applyFilters();
+});
 let condDebounce;
-function addConditionRow() {
-  const opts = conditionFieldOptions();
-  if (!opts.length) { toast('請先在「自訂欄位」勾選要顯示的欄位，才能對它篩選'); return; }
-  const row = document.createElement('div');
-  row.className = 'cond-row';
-  row.innerHTML =
-    `<select class="cond-field">${fieldOptionsHtml(opts[0].key)}</select>`
-    + '<input type="text" class="cond-value" placeholder="包含…">'
-    + '<button type="button" class="btn btn-secondary btn-small cond-remove">✕</button>';
-  $('#cond-list').appendChild(row);
-  row.querySelector('.cond-value').focus();
-}
-// 條件列事件（委派）
 $('#cond-list').addEventListener('input', (e) => {
   if (!e.target.classList.contains('cond-value')) return;
   clearTimeout(condDebounce);
   condDebounce = setTimeout(applyFilters, 300);
 });
 $('#cond-list').addEventListener('change', (e) => {
-  if (e.target.classList.contains('cond-field')) applyFilters();
+  if (e.target.closest('.cond-status')) applyFilters();
 });
 $('#cond-list').addEventListener('click', (e) => {
   if (!e.target.closest('.cond-remove')) return;
-  e.target.closest('.cond-row').remove();
+  const row = e.target.closest('.cond-row');
+  const key = row.dataset.field;
+  row.remove();
+  const cb = document.querySelector(`#filter-menu input[data-fcol="${key}"]`);
+  if (cb) cb.checked = false;
   applyFilters();
 });
-$('#btn-add-cond').addEventListener('click', addConditionRow);
-// 自訂欄位改變時：更新每列的欄位選單；若某列的欄位被隱藏了就移除該列
-function refreshConditionFields() {
-  const avail = new Set(conditionFieldOptions().map((c) => c.key));
-  let changed = false;
-  document.querySelectorAll('#cond-list .cond-row').forEach((row) => {
-    const sel = row.querySelector('.cond-field');
-    if (!avail.has(sel.value)) {
-      row.remove();
-      changed = true;
-      return;
-    }
-    sel.innerHTML = fieldOptionsHtml(sel.value);
-  });
-  if (changed) applyFilters();
-}
 
 buildTableHead();
 loadColumnPrefs();
@@ -653,9 +618,7 @@ document.querySelectorAll('dialog').forEach((d) => {
 
 async function loadFilterOptions() {
   try {
-    const [batches, campaigns] = await Promise.all([api('/api/batches'), api('/api/campaigns')]);
-    msBatch.setOptions(batches.map((b) => ({ value: b.id, label: `#${b.id} ${b.filename}` })));
-    msCampaign.setOptions(campaigns.map((c) => ({ value: c.id, label: c.name })));
+    const campaigns = await api('/api/campaigns');
     fillCampaignDatalist(campaigns);
   } catch (err) {
     toast(err.message, true);

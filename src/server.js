@@ -337,7 +337,7 @@ const FIELD_SQL = {
   email: 'k.recipient_email', method: 'k.send_method', sentat: 'k.sent_at',
   sendstatus: 'k.send_status', statusupdated: 'k.status_updated_at', unit: 'k.unit',
   salesrep: 'k.sales_rep', handler: 'k.redeemed_by', redeemedat: 'k.redeemed_at',
-  note: 'k.redeemed_note',
+  note: 'k.redeemed_note', campaign: 'c.name',
 };
 
 function buildCodeFilters(query) {
