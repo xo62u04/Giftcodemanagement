@@ -329,6 +329,17 @@ function _asList(v) {
   return arr.map((s) => String(s).trim()).filter(Boolean);
 }
 
+// 進階條件可篩的欄位白名單（key ↔ SQL 欄位）。狀態/批次/活動另有專屬多選，不在此。
+const FIELD_SQL = {
+  name: 'k.gift_name', code: 'k.code', url: 'k.redeem_url', value: 'k.face_value',
+  expires: 'k.expires_at', recipient: 'k.recipient_name', account: 'k.account_no',
+  nid: 'k.national_id', address: 'k.address', mobile: 'k.recipient_mobile',
+  email: 'k.recipient_email', method: 'k.send_method', sentat: 'k.sent_at',
+  sendstatus: 'k.send_status', statusupdated: 'k.status_updated_at', unit: 'k.unit',
+  salesrep: 'k.sales_rep', handler: 'k.redeemed_by', redeemedat: 'k.redeemed_at',
+  note: 'k.redeemed_note',
+};
+
 function buildCodeFilters(query) {
   const where = [];
   const params = {};
@@ -353,6 +364,19 @@ function buildCodeFilters(query) {
   if (campaigns.length) {
     const keys = campaigns.map((n, i) => { params[`c${i}`] = n; return `:c${i}`; });
     where.push(`k.campaign_id IN (${keys.join(',')})`);
+  }
+
+  // 進階條件（＋加條件）：對任一欄位做「包含」比對，query 用 f_<key>=值（可重複）。
+  // 白名單避免任意欄位注入；同欄多值以 AND 疊加。文字值不以逗號拆分（地址等可能含逗號）。
+  for (const [key, col] of Object.entries(FIELD_SQL)) {
+    const raw = query[`f_${key}`];
+    const vals = (raw == null ? [] : (Array.isArray(raw) ? raw : [raw]))
+      .map((s) => String(s).trim()).filter(Boolean);
+    vals.forEach((v, i) => {
+      const p = `f_${key}_${i}`;
+      params[p] = `%${v}%`;
+      where.push(`${col} LIKE :${p}`);
+    });
   }
 
   return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };

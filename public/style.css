@@ -176,6 +176,13 @@ body.is-admin .admin-only { display: inline-block; }
 .ms-empty { padding: 8px 10px; font-size: 13px; color: #9aa5b1; }
 .filter-count { font-size: 13px; color: #52606d; align-self: center; white-space: nowrap; }
 
+/* 進階條件列 */
+.cond-list { display: flex; flex-direction: column; gap: 8px; margin: -6px 0 16px; }
+.cond-list:empty { display: none; }
+.cond-row { display: flex; gap: 8px; align-items: center; }
+.cond-row .cond-field { min-width: 140px; }
+.cond-row .cond-value { flex: 1; max-width: 320px; }
+
 /* 篩選列 */
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
 .filter-bar input[type="search"] { flex: 1; min-width: 180px; }

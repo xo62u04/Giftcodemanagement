@@ -249,6 +249,12 @@ function currentFilters() {
   if (bt.length) params.set('batch_id', bt.join(','));
   const cp = msCampaign.values();
   if (cp.length) params.set('campaign_id', cp.join(','));
+  // 進階條件（＋加條件）：欄位限「自訂欄位」有勾選（可見）者
+  document.querySelectorAll('#cond-list .cond-row').forEach((row) => {
+    const field = row.querySelector('.cond-field').value;
+    const val = row.querySelector('.cond-value').value.trim();
+    if (field && val) params.append(`f_${field}`, val);
+  });
   return params;
 }
 
@@ -497,6 +503,7 @@ $('#btn-reset-filter').addEventListener('click', () => {
   msStatus.clear();
   msBatch.clear();
   msCampaign.clear();
+  $('#cond-list').innerHTML = '';
   applyFilters();
 });
 // 換頁後捲回列表最上方，不用自己滾滑鼠回去
@@ -566,6 +573,7 @@ $('#col-menu').addEventListener('change', (e) => {
   buildColMenu();
   applyColVisibility();
   saveColumnPrefs();
+  refreshConditionFields();
 });
 $('#btn-col-picker').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -576,6 +584,65 @@ $('#btn-col-picker').addEventListener('click', (e) => {
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.col-picker')) $('#col-menu').classList.remove('open');
 });
+
+// ---- 進階條件（＋加條件）：欄位＝自訂欄位裡「有勾選」的可見欄 ----
+const FILTERABLE_KEYS = new Set([
+  'name', 'code', 'url', 'value', 'expires', 'recipient', 'account', 'nid', 'address',
+  'mobile', 'email', 'method', 'sentat', 'sendstatus', 'statusupdated', 'unit', 'salesrep',
+  'handler', 'redeemedat', 'note',
+]);
+function conditionFieldOptions() {
+  return COLUMNS.filter((c) => FILTERABLE_KEYS.has(c.key) && !hiddenCols.has(c.key));
+}
+function fieldOptionsHtml(selected) {
+  return conditionFieldOptions()
+    .map((c) => `<option value="${c.key}"${c.key === selected ? ' selected' : ''}>${escapeHtml(c.label)}</option>`)
+    .join('');
+}
+let condDebounce;
+function addConditionRow() {
+  const opts = conditionFieldOptions();
+  if (!opts.length) { toast('請先在「自訂欄位」勾選要顯示的欄位，才能對它篩選'); return; }
+  const row = document.createElement('div');
+  row.className = 'cond-row';
+  row.innerHTML =
+    `<select class="cond-field">${fieldOptionsHtml(opts[0].key)}</select>`
+    + '<input type="text" class="cond-value" placeholder="包含…">'
+    + '<button type="button" class="btn btn-secondary btn-small cond-remove">✕</button>';
+  $('#cond-list').appendChild(row);
+  row.querySelector('.cond-value').focus();
+}
+// 條件列事件（委派）
+$('#cond-list').addEventListener('input', (e) => {
+  if (!e.target.classList.contains('cond-value')) return;
+  clearTimeout(condDebounce);
+  condDebounce = setTimeout(applyFilters, 300);
+});
+$('#cond-list').addEventListener('change', (e) => {
+  if (e.target.classList.contains('cond-field')) applyFilters();
+});
+$('#cond-list').addEventListener('click', (e) => {
+  if (!e.target.closest('.cond-remove')) return;
+  e.target.closest('.cond-row').remove();
+  applyFilters();
+});
+$('#btn-add-cond').addEventListener('click', addConditionRow);
+// 自訂欄位改變時：更新每列的欄位選單；若某列的欄位被隱藏了就移除該列
+function refreshConditionFields() {
+  const avail = new Set(conditionFieldOptions().map((c) => c.key));
+  let changed = false;
+  document.querySelectorAll('#cond-list .cond-row').forEach((row) => {
+    const sel = row.querySelector('.cond-field');
+    if (!avail.has(sel.value)) {
+      row.remove();
+      changed = true;
+      return;
+    }
+    sel.innerHTML = fieldOptionsHtml(sel.value);
+  });
+  if (changed) applyFilters();
+}
+
 buildTableHead();
 loadColumnPrefs();
 
