@@ -340,6 +340,15 @@ const FIELD_SQL = {
   note: 'k.redeemed_note', campaign: 'c.name',
 };
 
+// 時間欄位（前端給日期選擇器，可篩「起～迄」；query 用 f_<key>_from / f_<key>_to）。
+// 儲存格式不一（YYYY-MM-DD、YYYY/MM/DD HH:mm、ISO…），比對前正規化為 YYYY-MM-DD：
+// 把 '/' 換成 '-' 再取前 10 碼，即可用字串大小比較日期。
+const DATE_FIELD_SQL = {
+  expires: 'k.expires_at', sentat: 'k.sent_at',
+  statusupdated: 'k.status_updated_at', redeemedat: 'k.redeemed_at',
+};
+const normDateSql = (col) => `substr(replace(${col}, '/', '-'), 1, 10)`;
+
 function buildCodeFilters(query) {
   const where = [];
   const params = {};
@@ -377,6 +386,20 @@ function buildCodeFilters(query) {
       params[p] = `%${v}%`;
       where.push(`${col} LIKE :${p}`);
     });
+  }
+
+  // 時間欄位的區間篩選：f_<key>_from（含）、f_<key>_to（含）。空字串/NULL 不計入。
+  for (const [key, col] of Object.entries(DATE_FIELD_SQL)) {
+    const from = query[`f_${key}_from`];
+    const to = query[`f_${key}_to`];
+    if (from != null && String(from).trim()) {
+      params[`d_${key}_from`] = String(from).trim();
+      where.push(`(${col} IS NOT NULL AND ${col} != '' AND ${normDateSql(col)} >= :d_${key}_from)`);
+    }
+    if (to != null && String(to).trim()) {
+      params[`d_${key}_to`] = String(to).trim();
+      where.push(`(${col} IS NOT NULL AND ${col} != '' AND ${normDateSql(col)} <= :d_${key}_to)`);
+    }
   }
 
   return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
@@ -573,7 +596,38 @@ app.post('/api/codes/redeem-bulk', (req, res) => {
   });
 });
 
-// ---- 匯出 CSV（套用與列表相同的篩選）----
+// ---- 匯出 CSV（套用與列表相同的篩選，並依使用者的自訂欄位輸出）----
+// EXPORT_COLS：欄位 key ↔ [標頭, 取值函式]，對應前端 COLUMNS。
+// 前端把目前「自訂欄位」可見的欄（同順序）以 cols=k1,k2,... 傳來；未帶則輸出全部欄位。
+const _statusText = (disp) =>
+  disp === 'redeemed' ? '已兌換' : disp === 'earmarked' ? '已圈存' : '未兌換';
+const EXPORT_COLS = {
+  name: ['禮券名稱', (r) => r.gift_name || ''],
+  code: ['密碼/序號', (r) => r.code],
+  url: ['兌換連結', (r) => r.redeem_url || ''],
+  value: ['面額', (r) => r.face_value],
+  expires: ['到期日', (r) => r.expires_at],
+  status: ['狀態', (r) => _statusText(r.display_status)],
+  earmark: ['圈存起訖', (r) => ((r.earmark_start || r.earmark_end) ? `${r.earmark_start || ''}~${r.earmark_end || ''}` : '')],
+  campaign: ['使用活動', (r) => r.campaign_name || ''],
+  recipient: ['兌換人', (r) => r.recipient_name || ''],
+  account: ['期貨帳號', (r) => r.account_no || ''],
+  nid: ['身分證字號', (r) => r.national_id || ''],
+  address: ['戶籍地址', (r) => r.address || ''],
+  mobile: ['手機', (r) => r.recipient_mobile || ''],
+  email: ['Email', (r) => r.recipient_email || ''],
+  method: ['發送方式', (r) => r.send_method || ''],
+  sentat: ['發送時間', (r) => r.sent_at || ''],
+  sendstatus: ['發送狀態', (r) => r.send_status || ''],
+  statusupdated: ['狀態更新時間', (r) => r.status_updated_at || ''],
+  unit: ['單位', (r) => r.unit || ''],
+  salesrep: ['營業員', (r) => r.sales_rep || ''],
+  handler: ['操作者', (r) => r.redeemed_by || ''],
+  redeemedat: ['兌換時間', (r) => r.redeemed_at || ''],
+  note: ['備註', (r) => r.redeemed_note || ''],
+};
+const EXPORT_DEFAULT = Object.keys(EXPORT_COLS);
+
 app.get('/api/export.csv', (req, res) => {
   const { clause, params } = buildCodeFilters(req.query);
   const rows = db.prepare(`${CODE_SELECT} ${clause} ORDER BY k.id`).all(params);
@@ -582,82 +636,16 @@ app.get('/api/export.csv', (req, res) => {
     const s = String(v == null ? '' : v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const statusText = (disp) =>
-    disp === 'redeemed' ? '已兌換' : disp === 'earmarked' ? '已圈存' : '未兌換';
-  // 欄序與上傳範本一致（禮品名稱／兌換連結／密碼…），匯出檔可直接再上傳；
-  // 後段兌換時間／備註／批次檔名／建立時間為參考欄，解析時會被忽略。
-  const header = [
-    '禮品名稱', '兌換連結', '密碼', '面額', '到期日', '經手人', '適用專案',
-    '圈存開始日', '圈存結束日', '狀態', '兌換時間', '備註', '批次檔名', '建立時間',
-  ];
-  const lines = [header.join(',')];
+  const requested = _asList(req.query.cols).filter((k) => EXPORT_COLS[k]);
+  const keys = requested.length ? requested : EXPORT_DEFAULT;
+  const lines = [keys.map((k) => EXPORT_COLS[k][0]).join(',')];
   for (const r of rows) {
-    lines.push([
-      r.gift_name || '',
-      r.redeem_url || '',
-      r.code,
-      r.face_value,
-      r.expires_at,
-      r.redeemed_by,
-      r.campaign_name || '',
-      r.earmark_start,
-      r.earmark_end,
-      statusText(r.display_status),
-      r.redeemed_at || '',
-      r.redeemed_note,
-      r.batch_filename,
-      r.created_at,
-    ].map(esc).join(','));
+    lines.push(keys.map((k) => esc(EXPORT_COLS[k][1](r))).join(','));
   }
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="giftcodes-export.csv"');
   res.send('\uFEFF' + lines.join('\n') + '\n');
-});
-
-// ---- 匯出簽收表（虛擬禮品贈送紀錄）----
-// 欄序比照公司「【簽收表】虛擬禮品贈送紀錄」。含客戶個資，屬敏感資料。
-app.get('/api/signoff.csv', (req, res) => {
-  const { clause, params } = buildCodeFilters(req.query);
-  const rows = db.prepare(`${CODE_SELECT} ${clause} ORDER BY k.id`).all(params);
-
-  const esc = (v) => {
-    const s = String(v == null ? '' : v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const header = [
-    '編號', '專案名稱', '產品名稱', 'Email/SMS', 'Mobile', 'Email', '兌換連結', '密碼',
-    '發送時間', '發送狀態', '狀態更新時間', '期貨帳號', '購買人姓名', '身份證字號',
-    '戶籍地址', '面額', '單位', '營業員',
-  ];
-  const lines = [header.join(',')];
-  rows.forEach((r, i) => {
-    lines.push([
-      i + 1,
-      r.campaign_name || '',
-      r.gift_name || '',
-      r.send_method,
-      r.recipient_mobile,
-      r.recipient_email,
-      r.redeem_url || '',
-      r.code,
-      r.sent_at,
-      r.send_status,
-      r.status_updated_at,
-      r.account_no,
-      r.recipient_name,
-      r.national_id,
-      r.address,
-      r.face_value,
-      r.unit,
-      r.sales_rep,
-    ].map(esc).join(','));
-  });
-
-  const filename = encodeURIComponent('虛擬禮品贈送紀錄.csv');
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="signoff.csv"; filename*=UTF-8''${filename}`);
-  res.send('﻿' + lines.join('\n') + '\n');
 });
 
 app.get('/api/template.csv', (req, res) => {

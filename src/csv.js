@@ -16,12 +16,12 @@ const GIFT_NAME_HEADERS = [
   'gift_name', 'giftname', 'gift name', 'product_name', 'productname', 'product name', 'item_name',
   '禮品名稱', '禮券名稱', '商品名稱', '品名', '禮品', '禮券',
 ];
-// 電子禮券：兌換連結（一個密碼對應一個連結，作為唯一鍵）、經手人、適用專案、圈存起訖日、狀態
+// 電子禮券：兌換連結（一個密碼對應一個連結，作為唯一鍵）、操作者、適用專案、圈存起訖日、狀態
 const REDEEM_URL_HEADERS = [
   'redeem_url', 'redeemurl', 'redeem url', 'redemption_url', 'url', 'link',
   '兌換連結', '兌換網址', '連結', '網址',
 ];
-const HANDLER_HEADERS = ['handler', 'redeemed_by', 'operator', '經手人', '代領人', '承辦人', '處理人'];
+const HANDLER_HEADERS = ['handler', 'redeemed_by', 'operator', '操作者', '經手人', '代領人', '承辦人', '處理人'];
 const PROJECT_HEADERS = ['project', 'campaign', 'campaign_name', '適用專案', '專案', '活動', '活動名稱', '使用活動'];
 const EARMARK_START_HEADERS = ['earmark_start', 'hold_start', '圈存開始日', '圈存起日', '圈存開始', '圈存起'];
 const EARMARK_END_HEADERS = ['earmark_end', 'hold_end', '圈存結束日', '圈存迄日', '圈存結束', '圈存迄'];
@@ -45,7 +45,7 @@ const SIGNOFF_FIELDS = {
 // 下載用的 CSV 範本。欄位名稱與順序比照使用者實際的電子禮券檔（禮品名稱／兌換連結／密碼…）。
 const TEMPLATE_SAMPLE_CODES = ['ABC12345678', 'ABC12345679'];
 const TEMPLATE_CSV = [
-  '禮品名稱,兌換連結,密碼,面額,到期日(選填),經手人,適用專案(選填),圈存開始日(選填),圈存結束日(選填),狀態',
+  '禮品名稱,兌換連結,密碼,面額,到期日(選填),操作者,適用專案(選填),圈存開始日(選填),圈存結束日(選填),狀態',
   `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE1,${TEMPLATE_SAMPLE_CODES[0]},100,2026-12-31,,,,,未兌換`,
   `7-ELEVEN 100元數位商品禮券,https://example.com/redeem/SAMPLE2,${TEMPLATE_SAMPLE_CODES[1]},100,2026-12-31,,,,,未兌換`,
   '',

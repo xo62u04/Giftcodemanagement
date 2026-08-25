@@ -62,8 +62,7 @@
         </div>
         <button type="button" class="btn btn-secondary" id="btn-reset-filter">清除條件</button>
         <span id="filter-count" class="filter-count"></span>
-        <button type="button" class="btn btn-secondary" id="btn-export">匯出 CSV</button>
-        <button type="button" class="btn btn-secondary" id="btn-export-signoff">匯出簽收表</button>
+        <button type="button" class="btn btn-secondary" id="btn-export">匯出</button>
         <div class="col-picker">
           <button type="button" class="btn btn-secondary" id="btn-col-picker">自訂欄位 ▾</button>
           <div class="col-menu" id="col-menu"></div>
@@ -154,7 +153,7 @@
         <p class="hint">貼上多個禮券碼（每行一個，或以逗號分隔），一次標記為同一個活動使用。</p>
         <label>禮券碼清單 <textarea id="bulk-codes" rows="8" required placeholder="ABC-001&#10;ABC-002&#10;ABC-003"></textarea></label>
         <label>使用活動 <input type="text" id="bulk-campaign" class="campaign-input" required placeholder="點選或輸入活動名稱"></label>
-        <label>經手人（選填） <input type="text" id="bulk-by"></label>
+        <label>操作者（選填） <input type="text" id="bulk-by"></label>
         <label>備註（選填） <input type="text" id="bulk-note"></label>
         <button type="submit" class="btn">批次兌換</button>
       </form>
@@ -197,7 +196,7 @@
       <p class="hint">
         支援含標頭的 CSV：密碼（序號，欄名可為 密碼 / 序號 / code 等）、
         兌換連結（作為每張的唯一識別）、禮品名稱、面額、到期日，
-        以及經手人、適用專案、圈存開始/結束日、狀態（未兌換 / 已兌換 / 已圈存）。
+        以及操作者、適用專案、圈存開始/結束日、狀態（未兌換 / 已兌換 / 已圈存）。
         <strong>禮品名稱與狀態逐列各自套用</strong>；兌換連結相同視為重複自動略過。<br>
         不知道格式怎麼填？下載範本照著填即可；範本內的兩列範例資料上傳時會自動略過。
       </p>
@@ -237,7 +236,13 @@
       <label>戶籍地址 <input type="text" id="code-edit-address"></label>
       <label>手機（Mobile） <input type="text" id="code-edit-mobile"></label>
       <label>Email <input type="text" id="code-edit-email"></label>
-      <label>發送方式（Email/SMS） <input type="text" id="code-edit-send-method" placeholder="例：SMS / Email"></label>
+      <div class="card-form-field">
+        <span>發送方式（Email/SMS）</span>
+        <span class="method-checks">
+          <label class="checkbox-label"><input type="checkbox" id="code-edit-method-email" value="Email"> Email</label>
+          <label class="checkbox-label"><input type="checkbox" id="code-edit-method-sms" value="SMS"> SMS</label>
+        </span>
+      </div>
       <label>發送時間 <input type="text" id="code-edit-sent-at" placeholder="YYYY-MM-DD HH:mm"></label>
       <label>發送狀態 <input type="text" id="code-edit-send-status" placeholder="例：已送達手機"></label>
       <label>狀態更新時間 <input type="text" id="code-edit-status-updated-at" placeholder="YYYY-MM-DD HH:mm"></label>
@@ -256,7 +261,7 @@
       <h2 id="redeem-dialog-title">標記兌換</h2>
       <p id="redeem-target-line">禮券碼：<strong id="redeem-code-label"></strong></p>
       <label>使用活動 <input type="text" id="redeem-campaign" class="campaign-input" required placeholder="點選或輸入活動名稱"></label>
-      <label>經手人（選填） <input type="text" id="redeem-by"></label>
+      <label>操作者（選填） <input type="text" id="redeem-by"></label>
       <label>備註（選填） <input type="text" id="redeem-note"></label>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="redeem-cancel">取消</button>

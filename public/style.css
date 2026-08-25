@@ -145,6 +145,8 @@ tr.over-budget td:first-child {
 body.is-admin .admin-only { display: inline-block; }
 .checkbox-label { flex-direction: row !important; align-items: center; gap: 8px !important; }
 .checkbox-label input { width: auto; }
+.card-form-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #3e4c59; }
+.method-checks { display: flex; gap: 16px; align-items: center; }
 .redeem-link { color: #2563eb; text-decoration: none; }
 .redeem-link:hover { text-decoration: underline; }
 .muted { color: #9aa5b1; }
@@ -185,6 +187,9 @@ body.is-admin .admin-only { display: inline-block; }
 .cond-status { display: flex; gap: 14px; align-items: center; }
 .cond-status label { display: flex; align-items: center; gap: 5px; font-size: 14px; color: #3e4c59; }
 .cond-status input { width: auto; margin: 0; }
+.cond-daterange { display: flex; gap: 8px; align-items: center; }
+.cond-daterange input[type="date"] { width: auto; }
+.cond-daterange .cond-dash { color: #9aa5b1; }
 .cond-remove { margin-left: auto; }
 
 /* 篩選列 */

@@ -12,7 +12,7 @@ REM    set "SYNC_DIR=Z:\giftcodes"
 REM    set "BACKUP_DIR=Z:\giftcodes-db"
 REM ============================================================
 
-set "PORT=3000"
+set "PORT=3500"
 set "SYNC_DIR=\\172.22.91.100\數位增長部\數位規劃處\【電子禮券後台】E-gift\gifts"
 set "BACKUP_DIR=\\172.22.91.100\數位增長部\數位規劃處\【電子禮券後台】E-gift\DB"
 set "SYNC_INTERVAL_MINUTES=30"

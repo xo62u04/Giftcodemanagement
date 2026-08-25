@@ -206,16 +206,25 @@ function addFilterRow(key) {
   const row = document.createElement('div');
   row.className = 'cond-row';
   row.dataset.field = key;
-  const valueHtml = key === 'status'
-    ? '<div class="cond-status">'
+  let valueHtml;
+  if (key === 'status') {
+    valueHtml = '<div class="cond-status">'
       + '<label><input type="checkbox" value="available">未兌換</label>'
       + '<label><input type="checkbox" value="earmarked">已圈存</label>'
-      + '<label><input type="checkbox" value="redeemed">已兌換</label></div>'
-    : '<input type="text" class="cond-value" placeholder="包含…">';
+      + '<label><input type="checkbox" value="redeemed">已兌換</label></div>';
+  } else if (col.type === 'date') {
+    // 時間欄位：給日期選擇器，可選「起～迄」區間（任一端可留空）
+    valueHtml = '<span class="cond-daterange">'
+      + '<input type="date" class="cond-date-from" aria-label="起日">'
+      + '<span class="cond-dash">～</span>'
+      + '<input type="date" class="cond-date-to" aria-label="迄日"></span>';
+  } else {
+    valueHtml = '<input type="text" class="cond-value" placeholder="包含…">';
+  }
   row.innerHTML = `<span class="cond-label">${escapeHtml(col.label)}</span>${valueHtml}`
     + '<button type="button" class="btn btn-secondary btn-small cond-remove" title="移除此條件">✕</button>';
   $('#cond-list').appendChild(row);
-  const v = row.querySelector('.cond-value');
+  const v = row.querySelector('.cond-value') || row.querySelector('.cond-date-from');
   if (v) v.focus();
 }
 function removeFilterRow(key) {
@@ -243,6 +252,11 @@ function currentFilters() {
     if (field === 'status') {
       const vals = [...row.querySelectorAll('.cond-status input:checked')].map((cb) => cb.value);
       if (vals.length) params.set('status', vals.join(','));
+    } else if (row.querySelector('.cond-daterange')) {
+      const from = row.querySelector('.cond-date-from').value;
+      const to = row.querySelector('.cond-date-to').value;
+      if (from) params.set(`f_${field}_from`, from);
+      if (to) params.set(`f_${field}_to`, to);
     } else {
       const val = row.querySelector('.cond-value').value.trim();
       if (val) params.append(`f_${field}`, val);
@@ -295,7 +309,7 @@ const COLUMNS = [
   { key: 'code', label: '密碼/序號', cell: (it) => `<code>${escapeHtml(it.code)}</code>` },
   { key: 'url', label: '兌換連結', cell: (it, c) => c.urlCell },
   { key: 'value', label: '面額', cell: (it) => escapeHtml(it.face_value) },
-  { key: 'expires', label: '到期日', cell: (it) => escapeHtml(it.expires_at) },
+  { key: 'expires', label: '到期日', type: 'date', cell: (it) => escapeHtml(it.expires_at) },
   { key: 'status', label: '狀態', cell: (it, c) => c.statusBadge },
   { key: 'earmark', label: '圈存起訖', style: 'white-space:nowrap;font-size:0.9em', cell: (it, c) => c.earmarkCell },
   { key: 'campaign', label: '使用活動', cell: (it) => escapeHtml(it.campaign_name || '') },
@@ -306,13 +320,13 @@ const COLUMNS = [
   { key: 'mobile', label: '手機', cell: (it) => escapeHtml(it.recipient_mobile || '') },
   { key: 'email', label: 'Email', cell: (it) => escapeHtml(it.recipient_email || '') },
   { key: 'method', label: '發送方式', cell: (it) => escapeHtml(it.send_method || '') },
-  { key: 'sentat', label: '發送時間', cell: (it) => escapeHtml(it.sent_at || '') },
+  { key: 'sentat', label: '發送時間', type: 'date', cell: (it) => escapeHtml(it.sent_at || '') },
   { key: 'sendstatus', label: '發送狀態', cell: (it) => escapeHtml(it.send_status || '') },
-  { key: 'statusupdated', label: '狀態更新時間', cell: (it) => escapeHtml(it.status_updated_at || '') },
+  { key: 'statusupdated', label: '狀態更新時間', type: 'date', cell: (it) => escapeHtml(it.status_updated_at || '') },
   { key: 'unit', label: '單位', cell: (it) => escapeHtml(it.unit || '') },
   { key: 'salesrep', label: '營業員', cell: (it) => escapeHtml(it.sales_rep || '') },
-  { key: 'handler', label: '經手人', cell: (it) => escapeHtml(it.redeemed_by || '') },
-  { key: 'redeemedat', label: '兌換時間', cell: (it) => formatTime(it.redeemed_at) },
+  { key: 'handler', label: '操作者', cell: (it) => escapeHtml(it.redeemed_by || '') },
+  { key: 'redeemedat', label: '兌換時間', type: 'date', cell: (it) => formatTime(it.redeemed_at) },
   { key: 'note', label: '備註', cell: (it) => escapeHtml(it.redeemed_note || '') },
 ];
 // 首次使用（DB 尚無紀錄）預設顯示的欄；其餘預設收起
@@ -510,10 +524,11 @@ document.querySelectorAll('#tab-codes [data-page]').forEach((btn) => {
   });
 });
 $('#btn-export').addEventListener('click', () => {
-  window.location.href = `/api/export.csv?${currentFilters()}`;
-});
-$('#btn-export-signoff').addEventListener('click', () => {
-  window.location.href = `/api/signoff.csv?${currentFilters()}`;
+  // 依目前「自訂欄位」可見的欄（同順序）匯出
+  const cols = COLUMNS.filter((c) => !hiddenCols.has(c.key)).map((c) => c.key);
+  const params = currentFilters();
+  if (cols.length) params.set('cols', cols.join(','));
+  window.location.href = `/api/export.csv?${params}`;
 });
 
 // ---- 自訂欄位（勾選顯示哪些欄，存 DB 依使用者；操作/流水號/勾選框固定顯示）----
@@ -596,7 +611,7 @@ $('#cond-list').addEventListener('input', (e) => {
   condDebounce = setTimeout(applyFilters, 300);
 });
 $('#cond-list').addEventListener('change', (e) => {
-  if (e.target.closest('.cond-status')) applyFilters();
+  if (e.target.closest('.cond-status') || e.target.closest('.cond-daterange')) applyFilters();
 });
 $('#cond-list').addEventListener('click', (e) => {
   if (!e.target.closest('.cond-remove')) return;
@@ -854,7 +869,9 @@ $('#codes-body').addEventListener('click', async (e) => {
     $('#code-edit-address').value = item.address || '';
     $('#code-edit-mobile').value = item.recipient_mobile || '';
     $('#code-edit-email').value = item.recipient_email || '';
-    $('#code-edit-send-method').value = item.send_method || '';
+    const sendMethod = item.send_method || '';
+    $('#code-edit-method-email').checked = /email/i.test(sendMethod);
+    $('#code-edit-method-sms').checked = /sms|簡訊/i.test(sendMethod);
     $('#code-edit-sent-at').value = item.sent_at || '';
     $('#code-edit-send-status').value = item.send_status || '';
     $('#code-edit-status-updated-at').value = item.status_updated_at || '';
@@ -900,7 +917,10 @@ $('#code-form').addEventListener('submit', async (e) => {
         address: $('#code-edit-address').value,
         recipient_mobile: $('#code-edit-mobile').value,
         recipient_email: $('#code-edit-email').value,
-        send_method: $('#code-edit-send-method').value,
+        send_method: [
+          $('#code-edit-method-email').checked ? 'Email' : null,
+          $('#code-edit-method-sms').checked ? 'SMS' : null,
+        ].filter(Boolean).join('/'),
         sent_at: $('#code-edit-sent-at').value,
         send_status: $('#code-edit-send-status').value,
         status_updated_at: $('#code-edit-status-updated-at').value,
