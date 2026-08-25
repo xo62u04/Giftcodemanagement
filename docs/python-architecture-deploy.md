@@ -1,6 +1,6 @@
 # 電子禮券後台 — Python 正式版架構與部署
 
-正式版採 **Client-Server**：前端（`public/`）與 API 由 **IIS** 承載，後端改寫為 **Python/Flask**，
+正式版採 **Client-Server**：前端（`public/`）與 API 由 **IIS** 承載，後端改寫為 **Python/FastAPI**，
 資料庫改用 **MSSQL @ 172.22.112.2**。**Python 與所有套件都打包在專案內**，目標機不需安裝 Python、
 也不需 pip install。
 
@@ -9,16 +9,16 @@
 瀏覽器（同仁，內網）
         │ HTTP
         ▼
-IIS（測試機）  ── HttpPlatformHandler ──►  打包在專案內的 Python 執行 api\app.py（Flask + waitress）
+IIS（測試機）  ── HttpPlatformHandler ──►  打包在專案內的 Python 執行 api\app.py（FastAPI + uvicorn）
         │                                         │ pymssql（自帶原生元件，免裝 ODBC）
-        └── 前端 public\ 由 Flask 服務            ▼
+        └── 前端 public\ 由 FastAPI 服務          ▼
                                             MSSQL  172.22.112.2  資料庫 EGift
 ```
 
 ## 專案結構（Python 部分）
 ```
 api/
-  app.py            Flask 進入點（IIS 用此啟動）＋核心 API
+  app.py            FastAPI 進入點（IIS 用此啟動）＋核心 API；自動 API 文件在 /api/docs
   config.py         連線設定（讀 config.local.json / 環境變數）
   config.local.json MSSQL 帳密（各機自建、不進版控；範例見 .example）
   db.py             pymssql 連線與結構初始化
