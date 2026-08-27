@@ -6,6 +6,10 @@
   "_sqlite": "試行用。務必放本機磁碟，勿放 NAS／SMB 共享（檔案鎖不可靠，有損毀風險）。留空則預設 <專案根>\\data\\giftcodes.db，即 Node 版正在用的那個檔。",
   "sqlite_path": "",
 
+  "_身分": "三層部署時 API 獨立一台，行程帳號不等於使用者。由前端那台 IIS 驗完 AD 後、轉址時帶進 header。trusted_proxies 務必填前端主機 IP（逗號分隔），留空＝本機開發模式（退回行程帳號）。",
+  "trusted_proxies": "",
+  "remote_user_header": "x-remote-user",
+
   "_mssql": "正式用。把 db_engine 改成 mssql 後才會讀以下欄位。",
   "db_host": "172.22.112.2",
   "db_port": 1433,

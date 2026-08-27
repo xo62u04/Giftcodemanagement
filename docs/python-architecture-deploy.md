@@ -32,6 +32,58 @@ web.config          IIS HttpPlatformHandler 設定
 build/setup_runtime.ps1  在有網路的建置機產生 runtime\
 ```
 
+## 三層部署（前端 / API / DB 各一台）
+```
+同仁瀏覽器
+    │ HTTP（只跟 .4 講話 → 同源，不需要 CORS）
+    ▼
+.4  IIS ── 驗 AD（Windows 驗證）
+    ├── 直接發靜態檔 public\（index.html / app.js / style.css）
+    └── URL Rewrite + ARR：/api/*  ──轉址並帶上身分 header──►
+                                                              .5  uvicorn + FastAPI
+                                                                  └── DB
+                                                                      現在：本機 SQLite（.5 上）
+                                                                      之後：MSSQL @ .2
+```
+**靜態檔由 IIS 發，不要由 FastAPI 發**——.4 本來就要裝 IIS 做轉址，靜態檔讓它直接發最省事。
+`app.py` 的 `/` 與 `/{path:path}` 只給本機開發用。注意這只是「誰發網頁檔案」的分工，
+**資料一律還是打 .5 的 FastAPI**，前端沒有 API 就沒有任何資料。
+
+### .4 的轉址規則（需先裝 ARR 並勾選 Enable proxy；只有 URL Rewrite 模組不能跨機轉發）
+```xml
+<rule name="api-to-api-host" stopProcessing="true">
+  <match url="^api/(.*)" />
+  <action type="Rewrite" url="http://172.22.112.5:8000/api/{R:1}" />
+  <serverVariables>
+    <set name="HTTP_X_REMOTE_USER" value="{LOGON_USER}" />
+  </serverVariables>
+</rule>
+```
+`HTTP_X_REMOTE_USER` 需要先在 IIS 的 URL Rewrite「允許的伺服器變數」清單中加入才能設定。
+
+### 身分怎麼傳（重要）
+API 獨立一台之後，**行程自己的 Windows 帳號對所有人都一樣**，不能當身分用。流程是：
+
+1. .4 的 IIS 驗 AD，拿到 `LOGON_USER`
+2. 轉址時寫進 `X-Remote-User` header（上面的規則）
+3. API 讀 header，`DOMAIN\user` 與 `user@domain` 都會被正規化成純帳號
+4. 前端呼叫 `/api/current-user` 得知自己是誰，後續動作沿用同一個身分
+
+**`trusted_proxies` 一定要填 .4 的 IP**。API 只在來源相符時才採信 header——否則任何人都能
+繞過前端直接打 .5 並自稱是別人。設了信任來源卻收不到 header 時，身分判為「未識別」而**不會**
+退回行程帳號（避免所有人被誤認成 .5 上的服務帳號、拿到管理員權限）。
+
+`/api/current-user` 會回 `identity_source` 供維運判斷：`header`（正式三層）／
+`process`（本機開發）／`none`（該有卻沒拿到，代表轉址規則或信任清單設錯）。
+
+`trusted_proxies` 留空＝本機開發模式，退回行程帳號，方便一台機器跑完整套。
+
+### 還要開的
+- .4 → .5 的 API 埠（防火牆）
+- .5 上跑服務的帳號需有 SQLite 資料夾寫入權（WAL 會另外產生 `-wal` / `-shm`）
+- NAS 同步在 .5 執行，.5 需能讀 `\\172.22.91.100\...`
+- 之後換 MSSQL：.5 → .2 的 1433
+
 ## 資料庫：先 SQLite，之後換 MSSQL
 `api\config.local.json` 的 **`db_engine`** 決定用哪個引擎，其餘程式一行都不用改：
 

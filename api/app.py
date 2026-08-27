@@ -20,7 +20,7 @@ import re
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
@@ -42,11 +42,36 @@ def parse_face_value(v):
     return float(m.group(0)) if m else None
 
 
-def current_windows_user():
+def _process_user():
+    """跑這支程式的 Windows 帳號。只在本機開發（前端與 API 同一台）時才等於使用者。"""
     try:
         return (os.environ.get('USERNAME') or getpass.getuser() or '').strip()
     except Exception:
         return ''
+
+
+def current_windows_user(request=None):
+    """目前使用者的 Windows 帳號。
+
+    三層部署下 API 獨立一台，行程帳號對所有人都一樣，不能拿來當身分。
+    正解是前端那台 IIS 驗完 AD 後，在轉址時把登入者寫進 header（預設 x-remote-user）。
+
+    header 只在來源位於 config.TRUSTED_PROXIES 時採信——否則任何人都能繞過前端直接打
+    API 並自稱是別人。TRUSTED_PROXIES 留空代表本機開發，此時退回行程帳號。
+    """
+    if request is not None and config.TRUSTED_PROXIES:
+        peer = getattr(request.client, 'host', '') or ''
+        if peer in config.TRUSTED_PROXIES:
+            raw = (request.headers.get(config.REMOTE_USER_HEADER) or '').strip()
+            if raw:
+                # AD 給的是 DOMAIN\user 或 user@domain，staff.windows_username 存的是純帳號
+                if '\\' in raw:
+                    raw = raw.rsplit('\\', 1)[-1]
+                elif '@' in raw:
+                    raw = raw.split('@', 1)[0]
+                return raw.strip()
+        return ''  # 已設信任來源卻拿不到身分：寧可判為「未識別」，不要退回行程帳號冒充成管理員
+    return _process_user()
 
 
 def _fetch_codes(q=None, batch_id=None, campaign_id=None, order='DESC'):
@@ -104,8 +129,8 @@ def health():
 
 # ---------- 目前使用者 / 權限 ----------
 @app.get('/api/current-user')
-def current_user():
-    user = current_windows_user()
+def current_user(request: Request):
+    user = current_windows_user(request)
     staff = None
     if user:
         rows = db.query("SELECT * FROM staff WHERE LOWER(windows_username)=LOWER(?)", (user,))
@@ -114,7 +139,9 @@ def current_user():
     is_admin = bool(staff and staff.get('is_admin'))
     can_admin = admin_count == 0 or is_admin  # zero-admin 引導
     return {'windows_username': user, 'matched': bool(staff), 'staff': staff,
-            'is_admin': is_admin, 'can_admin': can_admin}
+            'is_admin': is_admin, 'can_admin': can_admin,
+            # 給維運判斷身分是怎麼來的：header（正式三層）／process（本機開發）／none（該有卻沒拿到）
+            'identity_source': ('process' if not config.TRUSTED_PROXIES else ('header' if user else 'none'))}
 
 
 # ---------- 範本 ----------
