@@ -1,5 +1,10 @@
 node_modules/
 data/
+
+# 文件與測試範本只留在本機，不進版控
+# （測試範本內含真實兌換連結與密碼，進了 git 就永久留在歷史裡）
+docs/
+
 *.db
 *.db-journal
 *.db-wal
