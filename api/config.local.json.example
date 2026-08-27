@@ -1,4 +1,12 @@
 {
+  "_說明": "複製為 config.local.json 後修改。db_engine 決定用哪個資料庫，其餘欄位只有對應引擎會讀。",
+
+  "db_engine": "sqlite",
+
+  "_sqlite": "試行用。務必放本機磁碟，勿放 NAS／SMB 共享（檔案鎖不可靠，有損毀風險）。留空則預設 <專案根>\\data\\giftcodes.db，即 Node 版正在用的那個檔。",
+  "sqlite_path": "",
+
+  "_mssql": "正式用。把 db_engine 改成 mssql 後才會讀以下欄位。",
   "db_host": "172.22.112.2",
   "db_port": 1433,
   "db_name": "EGift",

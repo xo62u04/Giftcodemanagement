@@ -32,6 +32,30 @@ web.config          IIS HttpPlatformHandler 設定
 build/setup_runtime.ps1  在有網路的建置機產生 runtime\
 ```
 
+## 資料庫：先 SQLite，之後換 MSSQL
+`api\config.local.json` 的 **`db_engine`** 決定用哪個引擎，其餘程式一行都不用改：
+
+| | `sqlite`（試行，預設） | `mssql`（正式） |
+|---|---|---|
+| 資料位置 | server 本機的 `.db` 檔 | MSSQL 172.22.112.2 |
+| 何時用 | 現在——不必等 DBA 開帳號就能上線試行 | 之後正式營運 |
+| 切換方式 | — | 把 `db_engine` 改成 `mssql`、填帳密，重啟 |
+
+方言差異全部收在 `db.py`：佔位符（`?` ↔ `%s`）、取新增 id（`lastrowid` ↔ `OUTPUT INSERTED.id`）、
+DDL（`schema_sql.SQLITE_STATEMENTS` ↔ `STATEMENTS`）。**新增查詢時一律寫 `?`、取 id 一律用
+`db.insert_returning_id()`**，不要直接寫死任一方言，否則之後換引擎會漏。
+
+SQLite 的兩個前提：
+
+1. **檔案放本機磁碟，不要放 NAS**。SQLite 走 SMB 共享的檔案鎖不可靠，多人同時寫有損毀風險。
+   （Node 版目前把 DB 放在 `\\172.22.91.100\...\E-gift\DB`，搬到 server 本機正好修掉這個隱患。）
+2. **IIS 應用程式集區的身分需要該資料夾的寫入權限**（WAL 模式會另外產生 `-wal` / `-shm` 檔）。
+
+`sqlite_path` 留空時預設指向 `<專案根>\data\giftcodes.db`，也就是 Node 版正在用的那個檔——
+結構逐欄對齊，資料不必搬遷。若是尚未升級的舊 DB（`codes` 還沒有 `redeem_url`），
+啟動時會擋下並提示「先用 Node 版開一次完成升級」；那段搬遷邏輯留在 Node 版 `src/schema.js`，
+不在 Python 這側重寫一份。
+
 ## 建置（在「有對外網路」的機器上做一次）
 ```powershell
 .\build\setup_runtime.ps1   # 下載可攜式 Python 3.11、安裝套件到 runtime\
@@ -41,9 +65,9 @@ build/setup_runtime.ps1  在有網路的建置機產生 runtime\
 ## 部署到 IIS 測試機
 1. 目標機安裝 **HttpPlatformHandler**（IIS 官方模組，一個小 MSI；非 Python 套件）。
 2. 複製整個專案資料夾（含 `runtime\`）到測試機，設為 IIS 站台的實體路徑。
-3. 建立 `api\config.local.json`（照 `.example` 填 MSSQL 帳密）。
-4. 首次啟動會自動在 MSSQL 建表（`db.ensure_schema`）。
-5. 瀏覽器開站台首頁即可；健康檢查：`/api/health`（會回報 DB 連線狀態）。
+3. 建立 `api\config.local.json`（照 `.example` 填）。試行階段 `db_engine` 填 `sqlite` 即可，不必等 MSSQL。
+4. 首次啟動會自動建表（`db.ensure_schema`），既有 DB 則為 no-op。
+5. 瀏覽器開站台首頁即可；健康檢查：`/api/health`（會回報目前引擎與連線狀態）。
 
 > 目標機**不需**安裝 Python 或任何 Python 套件——全部在 `runtime\` 內。唯一需要的是 IIS 的 HttpPlatformHandler。
 
@@ -51,9 +75,11 @@ build/setup_runtime.ps1  在有網路的建置機產生 runtime\
 - ✅ 純邏輯（CSV 解析、日期、三態/圈存）已於本機以 Python 驗證，與 Node 版一致。
 - ✅ 核心 API：健康檢查、目前使用者/權限、範本下載、總覽統計、上傳批次、禮券列表、活動、匯出 CSV、匯出簽收表。
 - ✅ 打包：pymssql 等套件已可打包（自帶原生元件、免裝 ODBC）；IIS `web.config`、建置腳本就緒。
-- ⏳ 待補（後續階段，需連上 MSSQL 驗證）：標記/取消/批次兌換、單張編輯、刪除單張/整批、
-  同仁 CRUD、NAS 同步、每日備份、圈存警告。
-- ⏳ 待你提供：MSSQL 連線帳密、確認測試機能連 172.22.112.2、IIS 已裝 HttpPlatformHandler。
+- ✅ 資料庫可切換 sqlite / mssql；SQLite 路徑已用 Node 版寫出的 DB 實測讀寫皆正常。
+- ⏳ 待補（後續階段）：標記/取消/批次兌換、單張編輯、刪除單張/整批、同仁 CRUD、
+  NAS 同步、每日備份、圈存警告；另有 Node 版 8/21～8/24 新增的自訂欄位、多條件篩選、
+  依欄位匯出尚未移植。
+- ⏳ 待你提供：測試機規格與 IIS HttpPlatformHandler；MSSQL 帳密可等正式階段再給。
 
 ## 安全提醒
 簽收表的 `身份證字號 / 戶籍地址 / 期貨帳號` 為敏感個資，目前明碼儲存；正式營運前應於 MSSQL 端

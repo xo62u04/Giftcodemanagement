@@ -2,10 +2,13 @@
 """電子禮券管理後台 — Python/FastAPI API（取代 Node 版）。
 
 部署：IIS + HttpPlatformHandler 直接起這支程式（見專案根目錄 web.config）；
-本程式以 uvicorn 承載，同時服務前端（public\\）與 /api。資料庫為 MSSQL（pymssql）。
+本程式以 uvicorn 承載，同時服務前端（public\\）與 /api。
+資料庫由 config.db_engine 決定：sqlite（試行）或 mssql（正式），差異收在 db.py。
 
-路由一律用同步 def：pymssql 是同步驅動，FastAPI 會把同步端點丟到 threadpool 執行，
-不會卡住 event loop；寫成 async def 反而會在 DB 呼叫時阻塞整個迴圈。
+路由一律用同步 def：SQLite 與 pymssql 都是同步驅動，FastAPI 會把同步端點丟到 threadpool
+執行，不會卡住 event loop；寫成 async def 反而會在 DB 呼叫時阻塞整個迴圈。
+
+SQL 一律用 `?` 佔位符、取新 id 一律走 db.insert_returning_id()——不要直接寫死任一方言。
 
 本檔為第一階段：核心流程（上傳、列表、統計、活動、匯出、簽收表匯出）。
 兌換／編輯／刪除／批次／NAS 同步／備份／同仁 CRUD 於後續階段補上（見 TODO）。
@@ -49,13 +52,13 @@ def current_windows_user():
 def _fetch_codes(q=None, batch_id=None, campaign_id=None, order='DESC'):
     where, params = [], []
     if q:
-        where.append("k.code LIKE %s")
+        where.append("k.code LIKE ?")
         params.append('%' + str(q).strip() + '%')
     if batch_id:
-        where.append("k.batch_id=%s")
+        where.append("k.batch_id=?")
         params.append(int(batch_id))
     if campaign_id:
-        where.append("k.campaign_id=%s")
+        where.append("k.campaign_id=?")
         params.append(int(campaign_id))
     clause = ('WHERE ' + ' AND '.join(where)) if where else ''
     sql = ("SELECT k.*, b.filename AS batch_filename, c.name AS campaign_name "
@@ -85,7 +88,11 @@ def _esc(v):
 # ---------- 健康檢查 ----------
 @app.get('/api/health')
 def health():
-    info = {'ok': True, 'db_host': config.DB_HOST, 'db_name': config.DB_NAME}
+    info = {'ok': True, 'engine': db.ENGINE}
+    if db.ENGINE == 'sqlite':
+        info['sqlite_path'] = config.SQLITE_PATH
+    else:
+        info['db_host'], info['db_name'] = config.DB_HOST, config.DB_NAME
     try:
         db.query("SELECT 1 AS ok")
         info['db'] = 'connected'
@@ -101,7 +108,7 @@ def current_user():
     user = current_windows_user()
     staff = None
     if user:
-        rows = db.query("SELECT * FROM staff WHERE LOWER(windows_username)=LOWER(%s)", (user,))
+        rows = db.query("SELECT * FROM staff WHERE LOWER(windows_username)=LOWER(?)", (user,))
         staff = rows[0] if rows else None
     admin_count = db.query("SELECT COUNT(*) AS n FROM staff WHERE is_admin=1")[0]['n']
     is_admin = bool(staff and staff.get('is_admin'))
@@ -171,11 +178,11 @@ def upload_batch(file: Optional[UploadFile] = File(None), note: str = Form(''),
     conn = db.get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("INSERT INTO batches (filename, note, uploaded_by, gift_name) "
-                    "OUTPUT INSERTED.id VALUES (%s,%s,%s,%s)", (filename, note, uploaded_by, gift_name))
-        batch_id = cur.fetchone()[0]
+        batch_id = db.insert_returning_id(
+            cur, 'batches', ['filename', 'note', 'uploaded_by', 'gift_name'],
+            (filename, note, uploaded_by, gift_name))
         imported, duplicates = import_rows(cur, parsed['rows'], batch_id, gift_name)
-        cur.execute("UPDATE batches SET total_count=%s, imported_count=%s, duplicate_count=%s WHERE id=%s",
+        cur.execute("UPDATE batches SET total_count=?, imported_count=?, duplicate_count=? WHERE id=?",
                     (len(parsed['rows']), imported, len(duplicates), batch_id))
         conn.commit()
     except Exception:
@@ -184,7 +191,7 @@ def upload_batch(file: Optional[UploadFile] = File(None), note: str = Form(''),
     finally:
         conn.close()
 
-    imported_rows = db.query("SELECT face_value FROM codes WHERE batch_id=%s", (batch_id,))
+    imported_rows = db.query("SELECT face_value FROM codes WHERE batch_id=?", (batch_id,))
     total_cost = with_value = no_value = 0
     for r in imported_rows:
         v = parse_face_value(r.get('face_value'))
@@ -263,19 +270,18 @@ def create_campaign(body: CampaignIn = CampaignIn()):
     conn = db.get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM campaigns WHERE name=%s", (name,))
+        cur.execute("SELECT id FROM campaigns WHERE name=?", (name,))
         if cur.fetchone():
             return JSONResponse({'error': 'Campaign already exists'}, status_code=409)
-        cur.execute("INSERT INTO campaigns (name, planned_count, budget, start_date, end_date) "
-                    "OUTPUT INSERTED.id VALUES (%s,%s,%s,%s,%s)",
-                    (name, max(0, int(body.planned_count or 0)),
-                     max(0.0, float(body.budget or 0)),
-                     (body.start_date or '').strip(), (body.end_date or '').strip()))
-        new_id = cur.fetchone()[0]
+        new_id = db.insert_returning_id(
+            cur, 'campaigns', ['name', 'planned_count', 'budget', 'start_date', 'end_date'],
+            (name, max(0, int(body.planned_count or 0)),
+             max(0.0, float(body.budget or 0)),
+             (body.start_date or '').strip(), (body.end_date or '').strip()))
         conn.commit()
     finally:
         conn.close()
-    row = db.query("SELECT * FROM campaigns WHERE id=%s", (new_id,))[0]
+    row = db.query("SELECT * FROM campaigns WHERE id=?", (new_id,))[0]
     return JSONResponse(jsonable_encoder(row), status_code=201)
 
 
